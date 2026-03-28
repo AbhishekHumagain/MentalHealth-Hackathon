@@ -8,6 +8,7 @@ from app.api.v1.endpoints.auth import router as auth_router
 from app.api.v1.endpoints.dashboard import router as dashboard_router
 from app.api.v1.endpoints.apartments import router as apartments_router
 from app.api.v1.endpoints.forum import router as forum_router
+from app.api.v1.endpoints.events import router as events_router
 from app.api.v1.chat import router as chat_router
 
 api_v1_router = APIRouter(prefix="/v1")
@@ -19,4 +20,5 @@ api_v1_router.include_router(auth_router)
 api_v1_router.include_router(dashboard_router)
 api_v1_router.include_router(apartments_router)
 api_v1_router.include_router(forum_router)
+api_v1_router.include_router(events_router)
 api_v1_router.include_router(chat_router)
