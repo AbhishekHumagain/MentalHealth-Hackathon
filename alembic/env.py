@@ -17,6 +17,7 @@ from app.infrastructure.database.models.internship_recommendation_model import I
 from app.infrastructure.database.models.student_profile_model import StudentProfileModel  # noqa: F401
 from app.infrastructure.database.models.apartment_model import ApartmentModel  # noqa: F401
 from app.infrastructure.database.models.chat_models import ChatRoomModel, ChatRoomMemberModel, ChatMessageModel, ChatRequestModel  # noqa: F401
+from app.infrastructure.database.models.forum_model import ForumPostModel, ForumCommentModel, ForumLikeModel, ForumReportModel  # noqa: F401
 from app.infrastructure.database.base import Base
 
 # ── Alembic config ────────────────────────────────────────────────────────────
