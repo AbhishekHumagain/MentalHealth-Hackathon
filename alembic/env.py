@@ -7,11 +7,16 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 # ── Project imports ───────────────────────────────────────────────────────────
-# settings must be importable before models
 from config import get_settings
 
 # Import all models so their tables are registered on Base.metadata
 import app.infrastructure.database.models  # noqa: F401
+from app.infrastructure.database.models.university_model import UniversityModel  # noqa: F401
+from app.infrastructure.database.models.internship_model import InternshipModel  # noqa: F401
+from app.infrastructure.database.models.internship_recommendation_model import InternshipRecommendationModel  # noqa: F401
+from app.infrastructure.database.models.student_profile_model import StudentProfileModel  # noqa: F401
+from app.infrastructure.database.models.apartment_model import ApartmentModel  # noqa: F401
+from app.infrastructure.database.models.chat_models import ChatRoomModel, ChatRoomMemberModel, ChatMessageModel, ChatRequestModel  # noqa: F401
 from app.infrastructure.database.base import Base
 
 # ── Alembic config ────────────────────────────────────────────────────────────
@@ -22,13 +27,10 @@ if alembic_cfg.config_file_name is not None:
 
 _settings = get_settings()
 
-# Override the placeholder URL in alembic.ini with the value from settings
 alembic_cfg.set_main_option("sqlalchemy.url", _settings.database_url)
 
 target_metadata = Base.metadata
 
-
-# ── Offline migrations ────────────────────────────────────────────────────────
 
 def run_migrations_offline() -> None:
     url = alembic_cfg.get_main_option("sqlalchemy.url")
@@ -42,8 +44,6 @@ def run_migrations_offline() -> None:
     with context.begin_transaction():
         context.run_migrations()
 
-
-# ── Online migrations ─────────────────────────────────────────────────────────
 
 def do_run_migrations(connection: Connection) -> None:
     context.configure(
@@ -69,8 +69,6 @@ async def run_async_migrations() -> None:
 def run_migrations_online() -> None:
     asyncio.run(run_async_migrations())
 
-
-# ── Entry point ───────────────────────────────────────────────────────────────
 
 if context.is_offline_mode():
     run_migrations_offline()
