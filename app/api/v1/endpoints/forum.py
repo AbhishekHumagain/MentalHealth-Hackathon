@@ -29,6 +29,7 @@ from app.application.use_cases.forum_use_cases import (
     ReportForumPostUseCase,
     ResolveForumReportUseCase,
     ToggleLikeUseCase,
+    UpdateForumPostUseCase,
 )
 from app.domain.exceptions.forum_exceptions import (
     ForumAlreadyReportedError,
