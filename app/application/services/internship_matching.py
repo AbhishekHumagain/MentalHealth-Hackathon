@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from app.domain.entities.internship import Internship
 from app.domain.entities.student_profile import StudentProfile
@@ -10,8 +10,18 @@ from app.domain.entities.student_profile import StudentProfile
 
 MAJOR_SYNONYMS: dict[str, set[str]] = {
     "computer science": {"computer science", "software engineering", "informatics", "it"},
+    "data science": {"data science", "data analytics", "statistics", "artificial intelligence", "ai"},
     "business": {"business", "business administration", "management", "commerce"},
+    "information technology": {"information technology", "it", "information systems"},
+    "marketing": {"marketing", "digital marketing", "brand management"},
+    "accounting": {"accounting", "accountancy", "bookkeeping"},
+    "tax": {"tax", "taxation", "tax accounting"},
     "electrical engineering": {"electrical engineering", "electronics engineering"},
+    "civil engineering": {"civil engineering", "construction engineering"},
+    "mechanical engineering": {"mechanical engineering", "manufacturing engineering"},
+    "psychology": {"psychology", "behavioral science"},
+    "health": {"health", "public health", "health sciences", "healthcare"},
+    "design": {"design", "ui ux", "ui/ux", "graphic design", "product design"},
 }
 
 
@@ -49,6 +59,9 @@ class InternshipMatchingService:
                 score += min(5.0, overlap * 1.5)
                 if score < 10:
                     reason = "Matched your skills/interests keywords"
+
+            score += self._title_bonus(internship)
+            score += self._freshness_bonus(internship, target_date)
 
             if score <= 0:
                 continue
@@ -93,3 +106,19 @@ class InternshipMatchingService:
 
     def _normalize(self, value: str) -> str:
         return " ".join(value.lower().split())
+
+    def _title_bonus(self, internship: Internship) -> float:
+        normalized_title = internship.title.lower()
+        if "internship" in normalized_title or "intern" in normalized_title:
+            return 1.0
+        return 0.0
+
+    def _freshness_bonus(self, internship: Internship, target_date: date) -> float:
+        if internship.last_seen_at is None:
+            return 0.0
+        seen_at = internship.last_seen_at
+        if seen_at.tzinfo is None:
+            seen_at = seen_at.replace(tzinfo=timezone.utc)
+        if seen_at.date() >= target_date - timedelta(days=7):
+            return 0.5
+        return 0.0

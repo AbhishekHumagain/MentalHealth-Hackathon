@@ -1,13 +1,21 @@
 from app.infrastructure.database.models.university_model import UniversityModel  # noqa: F401
-from app.infrastructure.database.models.student_profile_model import StudentProfileModel  # noqa: F401
-from app.infrastructure.database.models.internship_model import InternshipModel  # noqa: F401
-from app.infrastructure.database.models.internship_recommendation_model import (  # noqa: F401
-    InternshipRecommendationModel,
+from app.infrastructure.database.models.chat_models import (  # noqa: F401
+    ChatRoomModel,
+    ChatRoomMemberModel,
+    ChatMessageModel,
+    ChatRequestModel,
 )
+from app.infrastructure.database.models.apartment_model import ApartmentModel  # noqa: F401
+from app.infrastructure.database.models.event_model import EventModel  # noqa: F401
+from app.infrastructure.database.models.event_rsvp_model import EventRSVPModel  # noqa: F401
 
 __all__ = [
     "UniversityModel",
-    "StudentProfileModel",
-    "InternshipModel",
-    "InternshipRecommendationModel",
+    "ChatRoomModel",
+    "ChatRoomMemberModel",
+    "ChatMessageModel",
+    "ChatRequestModel",
+    "ApartmentModel",
+    "EventModel",
+    "EventRSVPModel",
 ]

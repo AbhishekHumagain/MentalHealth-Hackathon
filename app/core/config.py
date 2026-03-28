@@ -97,6 +97,9 @@ class Settings(BaseSettings):
     keycloak_admin_password: str = Field(default="admin")
     # Used to protect admin registration endpoint
     admin_registration_secret: str = Field(default="change-me-admin-secret")
+    adzuna_app_id: str | None = Field(default=None)
+    adzuna_app_key: str | None = Field(default=None)
+    adzuna_country: str = Field(default="us")
 
     # ── CORS ──────────────────────────────────────────────────────────────────
     allowed_origins: list[str] = Field(default=["http://localhost:3000"])
