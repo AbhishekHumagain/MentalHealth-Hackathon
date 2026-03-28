@@ -9,9 +9,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import AdminUser, StudentUser, UniversityUser
+from app.infrastructure.database.models.event_model import EventModel
 from app.infrastructure.database.models.internship_model import InternshipModel
 from app.infrastructure.database.models.student_profile_model import StudentProfileModel
 from app.infrastructure.database.models.university_model import UniversityModel
+from app.infrastructure.database.repositories.event_rsvp_repository_impl import (
+    SQLAlchemyEventRSVPRepository,
+)
 from app.infrastructure.database.repositories.internship_recommendation_repository_impl import (
     SQLAlchemyInternshipRecommendationRepository,
 )
@@ -50,6 +54,16 @@ class RecommendationSummary(BaseModel):
     reason: str
 
 
+class EventSummary(BaseModel):
+    id: str
+    title: str
+    organizer_name: str
+    mode: str
+    host_type: str
+    start_at: str
+    location: str | None
+
+
 # ── Student Dashboard ─────────────────────────────────────────────────────────
 
 
@@ -65,6 +79,8 @@ class StudentDashboard(BaseModel):
     preferred_locations: list[str]
     todays_recommendations: list[RecommendationSummary]
     recent_internships: list[InternshipSummary]
+    upcoming_events: list[EventSummary]
+    upcoming_rsvps: list[EventSummary]
 
 
 @router.get(
@@ -81,6 +97,7 @@ async def student_dashboard(
     internship_repo = SQLAlchemyInternshipRepository(session)
     recommendation_repo = SQLAlchemyInternshipRecommendationRepository(session)
     uni_repo = SQLAlchemyUniversityRepository(session)
+    event_rsvp_repo = SQLAlchemyEventRSVPRepository(session)
 
     profile = await profile_repo.get_by_user_id(claims.sub)
 
@@ -91,6 +108,8 @@ async def student_dashboard(
     skills: list[str] = []
     interests: list[str] = []
     preferred_locations: list[str] = []
+    upcoming_events: list[EventSummary] = []
+    upcoming_rsvps: list[EventSummary] = []
 
     if profile:
         major = profile.major
@@ -138,6 +157,49 @@ async def student_dashboard(
         for m in result.scalars().all()
     ]
 
+    event_result = await session.execute(
+        select(EventModel)
+        .where(
+            EventModel.is_active.is_(True),
+            EventModel.start_at >= func.now(),
+        )
+        .order_by(EventModel.start_at.asc())
+        .limit(5)
+    )
+    upcoming_events = [
+        EventSummary(
+            id=str(m.id),
+            title=m.title,
+            organizer_name=m.organizer_name,
+            mode=m.mode,
+            host_type=m.host_type,
+            start_at=m.start_at.isoformat(),
+            location=m.location,
+        )
+        for m in event_result.scalars().all()
+    ]
+
+    user_rsvps = await event_rsvp_repo.list_upcoming_for_user(user_id=claims.sub)
+    if user_rsvps:
+        rsvp_event_ids = [item.event_id for item in user_rsvps]
+        rsvp_event_result = await session.execute(
+            select(EventModel)
+            .where(EventModel.id.in_(rsvp_event_ids))
+            .order_by(EventModel.start_at.asc())
+        )
+        upcoming_rsvps = [
+            EventSummary(
+                id=str(m.id),
+                title=m.title,
+                organizer_name=m.organizer_name,
+                mode=m.mode,
+                host_type=m.host_type,
+                start_at=m.start_at.isoformat(),
+                location=m.location,
+            )
+            for m in rsvp_event_result.scalars().all()
+        ]
+
     return StudentDashboard(
         user_id=claims.sub,
         email=claims.email,
@@ -150,6 +212,8 @@ async def student_dashboard(
         preferred_locations=preferred_locations,
         todays_recommendations=todays_recs,
         recent_internships=recent_internships,
+        upcoming_events=upcoming_events,
+        upcoming_rsvps=upcoming_rsvps,
     )
 
 
@@ -167,6 +231,10 @@ class UniversityDashboard(BaseModel):
     total_internships_posted: int
     active_internships: int
     recent_internships: list[InternshipSummary]
+    total_events_hosted: int
+    active_events: int
+    total_event_rsvps: int
+    recent_events: list[EventSummary]
 
 
 @router.get(
@@ -190,6 +258,10 @@ async def university_dashboard(
     total_posted = 0
     active_count = 0
     recent_internships: list[InternshipSummary] = []
+    total_events_hosted = 0
+    active_events = 0
+    total_event_rsvps = 0
+    recent_events: list[EventSummary] = []
 
     if uni:
         university_id = uni.id
@@ -231,6 +303,47 @@ async def university_dashboard(
             for m in recent_result.scalars().all()
         ]
 
+        total_events_result = await session.execute(
+            select(func.count()).select_from(EventModel).where(
+                EventModel.hosted_by == claims.sub,
+                EventModel.host_type == "university",
+            )
+        )
+        total_events_hosted = total_events_result.scalar_one() or 0
+
+        active_events_result = await session.execute(
+            select(func.count()).select_from(EventModel).where(
+                EventModel.hosted_by == claims.sub,
+                EventModel.host_type == "university",
+                EventModel.is_active.is_(True),
+            )
+        )
+        active_events = active_events_result.scalar_one() or 0
+        event_rsvp_repo = SQLAlchemyEventRSVPRepository(session)
+        total_event_rsvps = await event_rsvp_repo.count_for_host(hosted_by=claims.sub)
+
+        recent_events_result = await session.execute(
+            select(EventModel)
+            .where(
+                EventModel.hosted_by == claims.sub,
+                EventModel.host_type == "university",
+            )
+            .order_by(EventModel.start_at.asc())
+            .limit(5)
+        )
+        recent_events = [
+            EventSummary(
+                id=str(m.id),
+                title=m.title,
+                organizer_name=m.organizer_name,
+                mode=m.mode,
+                host_type=m.host_type,
+                start_at=m.start_at.isoformat(),
+                location=m.location,
+            )
+            for m in recent_events_result.scalars().all()
+        ]
+
     return UniversityDashboard(
         user_id=claims.sub,
         email=claims.email,
@@ -242,6 +355,10 @@ async def university_dashboard(
         total_internships_posted=total_posted,
         active_internships=active_count,
         recent_internships=recent_internships,
+        total_events_hosted=total_events_hosted,
+        active_events=active_events,
+        total_event_rsvps=total_event_rsvps,
+        recent_events=recent_events,
     )
 
 
@@ -257,6 +374,9 @@ class AdminDashboard(BaseModel):
     active_students: int
     total_internships: int
     active_internships: int
+    total_events: int
+    active_events: int
+    total_event_rsvps: int
     recent_universities: list[dict]
 
 
@@ -309,6 +429,19 @@ async def admin_dashboard(
         )
     ).scalar_one() or 0
 
+    total_events = (
+        await session.execute(select(func.count()).select_from(EventModel))
+    ).scalar_one() or 0
+
+    active_events = (
+        await session.execute(
+            select(func.count()).select_from(EventModel).where(
+                EventModel.is_active.is_(True)
+            )
+        )
+    ).scalar_one() or 0
+    total_event_rsvps = await SQLAlchemyEventRSVPRepository(session).count_all()
+
     # Recent universities
     recent_uni_result = await session.execute(
         select(UniversityModel).order_by(UniversityModel.created_at.desc()).limit(10)
@@ -333,5 +466,8 @@ async def admin_dashboard(
         active_students=active_students,
         total_internships=total_intern,
         active_internships=active_intern,
+        total_events=total_events,
+        active_events=active_events,
+        total_event_rsvps=total_event_rsvps,
         recent_universities=recent_universities,
     )

@@ -6,6 +6,8 @@ from app.infrastructure.database.models.chat_models import (  # noqa: F401
     ChatRequestModel,
 )
 from app.infrastructure.database.models.apartment_model import ApartmentModel  # noqa: F401
+from app.infrastructure.database.models.event_model import EventModel  # noqa: F401
+from app.infrastructure.database.models.event_rsvp_model import EventRSVPModel  # noqa: F401
 
 __all__ = [
     "UniversityModel",
@@ -14,4 +16,6 @@ __all__ = [
     "ChatMessageModel",
     "ChatRequestModel",
     "ApartmentModel",
+    "EventModel",
+    "EventRSVPModel",
 ]
