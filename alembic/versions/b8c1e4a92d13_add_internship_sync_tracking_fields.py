@@ -1,7 +1,7 @@
 """add internship sync tracking fields
 
 Revision ID: b8c1e4a92d13
-Revises: a1b2c3d4e5f6
+Revises: 74b9d3df66c3
 Create Date: 2026-03-28 13:30:00.000000
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "b8c1e4a92d13"
-down_revision: Union[str, None] = "a1b2c3d4e5f6"
+down_revision: Union[str, None] = "74b9d3df66c3"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

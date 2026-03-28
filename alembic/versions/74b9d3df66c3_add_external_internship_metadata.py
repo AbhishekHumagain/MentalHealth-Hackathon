@@ -1,7 +1,7 @@
 """add external internship metadata
 
 Revision ID: 74b9d3df66c3
-Revises: 2f6d5b0afadd
+Revises: a1b2c3d4e5f6
 Create Date: 2026-03-28 03:00:00.000000
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "74b9d3df66c3"
-down_revision: Union[str, None] = "2f6d5b0afadd"
+down_revision: Union[str, None] = "a1b2c3d4e5f6"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
