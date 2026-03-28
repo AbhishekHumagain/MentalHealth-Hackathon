@@ -87,6 +87,7 @@ class Settings(BaseSettings):
     log_format: str = Field(default="json")
 
     # ── Keycloak ──────────────────────────────────────────────────────────────
+    # Always include the scheme, e.g. http://keycloak:8080 or https://keycloak.example.com
     keycloak_url: str = Field(default="http://localhost:8080")
     keycloak_realm: str = Field(default="hackathon")
     keycloak_client_id: str = Field(default="hackathon-api")
@@ -101,6 +102,15 @@ class Settings(BaseSettings):
     allowed_origins: list[str] = Field(default=["http://localhost:3000"])
 
     # ── Validators ────────────────────────────────────────────────────────────
+
+    @field_validator("keycloak_url", mode="before")
+    @classmethod
+    def normalise_keycloak_url(cls, v: str) -> str:
+        """Ensure keycloak_url always has an http(s):// scheme."""
+        v = str(v).strip().rstrip("/")
+        if v and not v.startswith(("http://", "https://")):
+            v = f"http://{v}"
+        return v
 
     @field_validator("allowed_mime_types", "allowed_origins", mode="before")
     @classmethod

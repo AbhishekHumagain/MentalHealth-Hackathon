@@ -1,4 +1,10 @@
-"""Validates Keycloak-issued RS256 JWTs and extracts user claims."""
+"""Validates Keycloak-issued RS256 JWTs and extracts user claims.
+
+The JWKS URL is computed lazily (inside _get_jwks) so that the KEYCLOAK_URL
+environment variable is always read at call time — not at import time.
+This prevents 'UnsupportedProtocol' errors when env vars aren't available
+during module import (e.g. on Railway cold starts).
+"""
 from __future__ import annotations
 
 import time
@@ -8,13 +14,6 @@ import httpx
 from jose import JWTError, jwt
 
 from app.core.config import get_settings
-
-_settings = get_settings()
-
-_JWKS_URL = (
-    f"{_settings.keycloak_url}/realms/{_settings.keycloak_realm}"
-    "/protocol/openid-connect/certs"
-)
 
 # Simple in-process JWKS cache (refresh every 10 minutes)
 _jwks_cache: dict = {}
@@ -35,16 +34,26 @@ class TokenValidationError(Exception):
     pass
 
 
+def _jwks_url() -> str:
+    """Build the JWKS URL fresh from current settings (lazy — no module-level constant)."""
+    s = get_settings()
+    base = s.keycloak_url.rstrip("/")
+    return f"{base}/realms/{s.keycloak_realm}/protocol/openid-connect/certs"
+
+
 async def _get_jwks() -> dict:
     global _jwks_cache, _jwks_fetched_at
     now = time.monotonic()
     if _jwks_cache and (now - _jwks_fetched_at) < _JWKS_TTL:
         return _jwks_cache
 
+    url = _jwks_url()
     async with httpx.AsyncClient() as client:
-        resp = await client.get(_JWKS_URL)
+        resp = await client.get(url)
         if resp.status_code != 200:
-            raise TokenValidationError("Unable to fetch Keycloak JWKS.")
+            raise TokenValidationError(
+                f"Unable to fetch Keycloak JWKS from {url} (HTTP {resp.status_code})."
+            )
         _jwks_cache = resp.json()
         _jwks_fetched_at = now
         return _jwks_cache
