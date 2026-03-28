@@ -5,6 +5,11 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from app.application.dto.internship_dto import CreateInternshipDTO
+from app.application.services.external_internship_provider import (
+    ExternalInternshipRecord,
+    _is_relevant_match,
+)
+from app.application.services.major_taxonomy import MajorTaxonomyService
 from app.application.dto.student_profile_dto import CreateStudentProfileDTO, UpdateStudentProfileDTO
 from app.application.services.internship_matching import InternshipMatchingService
 from app.application.use_cases.create_internship import CreateInternshipUseCase
@@ -13,6 +18,7 @@ from app.application.use_cases.generate_daily_recommendations import (
     GenerateDailyRecommendationsUseCase,
 )
 from app.application.use_cases.list_my_recommendations import ListMyRecommendationsUseCase
+from app.application.use_cases.sync_external_internships import SyncExternalInternshipsUseCase
 from app.application.use_cases.update_student_profile import UpdateStudentProfileUseCase
 from app.domain.entities.internship import Internship
 from app.domain.entities.internship_recommendation import InternshipRecommendation
@@ -49,6 +55,31 @@ class InMemoryInternshipRepository:
         self.items[internship.id] = internship
         return internship
 
+    async def upsert_by_source(self, internship: Internship) -> tuple[Internship, bool]:
+        if internship.source_name and internship.external_id:
+            for existing in self.items.values():
+                if (
+                    existing.source_name == internship.source_name
+                    and existing.external_id == internship.external_id
+                ):
+                    if internship.first_seen_at is None:
+                        internship.first_seen_at = existing.first_seen_at
+                    internship.id = existing.id
+                    self.items[existing.id] = internship
+                    return internship, False
+        self.items[internship.id] = internship
+        return internship, True
+
+    async def get_by_source_identity(
+        self,
+        source_name: str,
+        external_id: str,
+    ) -> Internship | None:
+        for internship in self.items.values():
+            if internship.source_name == source_name and internship.external_id == external_id:
+                return internship
+        return None
+
     async def list_available(self, target_date: date) -> list[Internship]:
         return [item for item in self.items.values() if item.is_available_on(target_date)]
 
@@ -58,6 +89,32 @@ class InMemoryInternshipRepository:
 
     async def get_by_id(self, internship_id: str) -> Internship | None:
         return self.items.get(internship_id)
+
+    async def mark_missing_external_inactive(
+        self,
+        source_name: str,
+        external_ids: set[str],
+    ) -> int:
+        count = 0
+        for internship in self.items.values():
+            if (
+                internship.source_type == "external_api"
+                and internship.source_name == source_name
+                and internship.is_active
+                and internship.external_id not in external_ids
+            ):
+                internship.is_active = False
+                internship.expires_at = datetime.now(timezone.utc)
+                count += 1
+        return count
+
+
+class FakeExternalInternshipProvider:
+    def __init__(self, records: list[ExternalInternshipRecord]) -> None:
+        self._records = records
+
+    async def fetch_internships(self, search_terms: list[str]) -> list[ExternalInternshipRecord]:
+        return self._records
 
 
 class InMemoryRecommendationRepository:
@@ -223,3 +280,230 @@ async def test_expired_internships_are_excluded_and_daily_runs_replace_results()
     assert second_count == 1
     assert len(stored) == 1
     assert stored[0].internship_id == active_internship.id
+
+
+def test_major_taxonomy_returns_expected_search_terms() -> None:
+    service = MajorTaxonomyService()
+
+    terms = service.search_terms_for_major("Computer Science")
+
+    assert "software engineer" in terms
+    assert "backend developer" in terms
+
+
+def test_major_taxonomy_supports_common_demo_majors() -> None:
+    service = MajorTaxonomyService()
+
+    design_terms = service.search_terms_for_major("Design")
+    accounting_terms = service.search_terms_for_major("Accounting")
+    health_terms = service.search_terms_for_major("Health")
+
+    assert "ui ux" in design_terms
+    assert "accounting" in accounting_terms
+    assert "public health" in health_terms
+    assert service.search_terms_for_major("Anthropology") == ["Anthropology intern"]
+
+
+def test_remotive_filtering_accepts_practical_internship_signals() -> None:
+    assert _is_relevant_match(
+        title="Software Engineer",
+        category="Software Development",
+        job_type="Internship",
+    )
+    assert _is_relevant_match(
+        title="Backend Intern",
+        category="Software Development",
+        job_type="Full-Time",
+    )
+    assert not _is_relevant_match(
+        title="Senior Backend Engineer",
+        category="Software Development",
+        job_type="Full-Time",
+    )
+
+
+def test_remotive_filtering_allows_entry_level_roles_for_broad_searches() -> None:
+    assert _is_relevant_match(
+        title="Junior Data Analyst",
+        category="Data",
+        job_type="Full-Time",
+        search_term="data analyst",
+    )
+    assert not _is_relevant_match(
+        title="Senior Data Analyst",
+        category="Data",
+        job_type="Full-Time",
+        search_term="data analyst",
+    )
+
+
+def test_remotive_filtering_allows_family_category_match_for_demo_mode() -> None:
+    assert _is_relevant_match(
+        title="Software Engineer",
+        category="Software Development",
+        job_type="Full-Time",
+        search_term="software engineer",
+        inferred_majors=["Computer Science"],
+    )
+    assert _is_relevant_match(
+        title="Marketing Specialist",
+        category="Marketing",
+        job_type="Full-Time",
+        search_term="marketing",
+        inferred_majors=["Marketing"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_external_sync_upserts_and_generates_recommendations() -> None:
+    profiles = InMemoryStudentProfileRepository()
+    internships = InMemoryInternshipRepository()
+    recommendations = InMemoryRecommendationRepository()
+    target_date = date(2026, 3, 28)
+
+    await CreateStudentProfileUseCase(profiles).execute(
+        CreateStudentProfileDTO(
+            user_id="student-1",
+            university_id="11111111-1111-1111-1111-111111111111",
+            major="Computer Science",
+            skills=["python"],
+        )
+    )
+
+    provider = FakeExternalInternshipProvider(
+        [
+            ExternalInternshipRecord(
+                external_id="job-1",
+                title="Software Engineer Intern",
+                company="Remote Co",
+                description="Python backend internship",
+                location="Remote",
+                application_url="https://example.com/jobs/100",
+                source_url="https://example.com/jobs/100",
+                source_name="remotive",
+                majors=["Computer Science"],
+                keywords=["python", "backend"],
+                last_seen_at=datetime.now(timezone.utc),
+                raw_payload={"id": "job-1", "title": "Software Engineer Intern"},
+            ),
+            ExternalInternshipRecord(
+                external_id="job-1",
+                title="Software Engineer Intern Updated",
+                company="Remote Co",
+                description="Python backend internship updated",
+                location="Remote",
+                application_url="https://example.com/jobs/100",
+                source_url="https://example.com/jobs/100",
+                source_name="remotive",
+                majors=["Computer Science"],
+                keywords=["python", "backend"],
+                last_seen_at=datetime.now(timezone.utc),
+                raw_payload={"id": "job-1", "title": "Software Engineer Intern Updated"},
+            ),
+        ]
+    )
+
+    result = await SyncExternalInternshipsUseCase(
+        internships=internships,
+        profiles=profiles,
+        recommendations=recommendations,
+        provider=provider,
+    ).execute(target_date)
+
+    assert result.fetched == 2
+    assert result.created == 1
+    assert result.updated == 1
+
+    all_internships = await internships.list_all()
+    assert len(all_internships) == 1
+    assert all_internships[0].title == "Software Engineer Intern Updated"
+    assert all_internships[0].first_seen_at is not None
+    assert all_internships[0].raw_payload is not None
+
+    matches = await ListMyRecommendationsUseCase(
+        profiles=profiles,
+        recommendations=recommendations,
+        internships=internships,
+    ).execute("student-1", target_date)
+    assert len(matches) == 1
+    assert matches[0].internship_title == "Software Engineer Intern Updated"
+
+
+@pytest.mark.asyncio
+async def test_sync_preserves_first_seen_at_and_uses_provider_source_name() -> None:
+    profiles = InMemoryStudentProfileRepository()
+    internships = InMemoryInternshipRepository()
+    recommendations = InMemoryRecommendationRepository()
+    target_date = date(2026, 3, 28)
+    original_first_seen = datetime(2026, 3, 20, tzinfo=timezone.utc)
+
+    await internships.create(
+        Internship(
+            title="Existing Intern",
+            company="Remote Co",
+            description="Existing description",
+            location="Remote",
+            application_url="https://example.com/jobs/999",
+            posted_by="system",
+            source_type="external_api",
+            external_id="job-1",
+            source_name="remotive",
+            source_url="https://example.com/jobs/999",
+            majors=["Computer Science"],
+            keywords=["python"],
+            first_seen_at=original_first_seen,
+            last_seen_at=original_first_seen,
+            raw_payload={"id": "job-1"},
+        )
+    )
+
+    provider = FakeExternalInternshipProvider(
+        [
+            ExternalInternshipRecord(
+                external_id="job-1",
+                title="Existing Intern Updated",
+                company="Remote Co",
+                description="Updated description",
+                location="Remote",
+                application_url="https://example.com/jobs/999",
+                source_url="https://example.com/jobs/999",
+                source_name="remotive",
+                majors=["Computer Science"],
+                keywords=["python", "backend"],
+                last_seen_at=datetime.now(timezone.utc),
+                raw_payload={"id": "job-1", "updated": True},
+            )
+        ]
+    )
+
+    await SyncExternalInternshipsUseCase(
+        internships=internships,
+        profiles=profiles,
+        recommendations=recommendations,
+        provider=provider,
+    ).execute(target_date)
+
+    saved = await internships.get_by_source_identity("remotive", "job-1")
+    assert saved is not None
+    assert saved.first_seen_at == original_first_seen
+    assert saved.raw_payload == {"id": "job-1", "updated": True}
+
+
+def test_matching_adds_title_and_freshness_bonus() -> None:
+    service = InternshipMatchingService()
+    profile = StudentProfile(user_id="student-1", university_id="u1", major="Computer Science")
+    internship = Internship(
+        title="Software Engineer Intern",
+        company="Acme",
+        description="Backend engineering internship",
+        location="Remote",
+        application_url="https://example.com/jobs/1",
+        majors=["Computer Science"],
+        keywords=["backend"],
+        last_seen_at=datetime.now(timezone.utc),
+    )
+
+    results = service.score_profile(profile, [internship], date.today())
+
+    assert len(results) == 1
+    assert results[0].score >= 11.5

@@ -1,5 +1,5 @@
 services:
-  # ── Application Database ───────────────────────────────────────────────────
+  # Application Database
   postgres:
     image: postgres:16-alpine
     environment:
@@ -16,7 +16,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # ── Keycloak Database ──────────────────────────────────────────────────────
+  # Keycloak Database
   keycloak_db:
     image: postgres:16-alpine
     environment:
@@ -33,7 +33,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # ── Keycloak Identity Provider ─────────────────────────────────────────────
+  # Keycloak Identity Provider
   keycloak:
     image: quay.io/keycloak/keycloak:24.0
     command:
@@ -59,14 +59,13 @@ services:
       keycloak_db:
         condition: service_healthy
     healthcheck:
-      # curl/wget are not in the Keycloak image — use bash built-in TCP check
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/8080' 2>/dev/null && exit 0 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 20
       start_period: 30s
 
-  # ── Redis ──────────────────────────────────────────────────────────────────
+  # Redis
   redis:
     image: redis:7-alpine
     ports:
@@ -77,7 +76,7 @@ services:
       timeout: 3s
       retries: 5
 
-  # ── API ────────────────────────────────────────────────────────────────────
+  # API
   api:
     build: .
     ports:

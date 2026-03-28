@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.use_cases.generate_daily_recommendations import (
     GenerateDailyRecommendationsUseCase,
 )
+from app.application.use_cases.sync_external_internships import SyncExternalInternshipsUseCase
 from app.infrastructure.database.repositories.internship_recommendation_repository_impl import (
     SQLAlchemyInternshipRecommendationRepository,
 )
@@ -28,3 +29,16 @@ async def run_daily_recommendations(
         internships=SQLAlchemyInternshipRepository(session),
         recommendations=SQLAlchemyInternshipRecommendationRepository(session),
     ).execute(effective_date)
+
+
+async def run_daily_internship_sync(
+    session: AsyncSession,
+    target_date: date | None = None,
+) -> int:
+    effective_date = target_date or date.today()
+    result = await SyncExternalInternshipsUseCase(
+        internships=SQLAlchemyInternshipRepository(session),
+        profiles=SQLAlchemyStudentProfileRepository(session),
+        recommendations=SQLAlchemyInternshipRecommendationRepository(session),
+    ).execute(effective_date)
+    return result.created + result.updated

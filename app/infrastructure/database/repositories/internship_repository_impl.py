@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, time, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, func, not_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.entities.internship import Internship
@@ -21,6 +21,34 @@ class SQLAlchemyInternshipRepository(InternshipRepository):
         await self._session.flush()
         await self._session.refresh(model)
         return model.to_entity()
+
+    async def upsert_by_source(self, internship: Internship) -> tuple[Internship, bool]:
+        if not internship.source_name or not internship.external_id:
+            saved = await self.create(internship)
+            return saved, True
+
+        model = await self._get_model_by_source_identity(
+            internship.source_name,
+            internship.external_id,
+        )
+        if model is None:
+            saved = await self.create(internship)
+            return saved, True
+
+        if internship.first_seen_at is None:
+            internship.first_seen_at = model.first_seen_at
+        model.apply_entity(internship)
+        await self._session.flush()
+        await self._session.refresh(model)
+        return model.to_entity(), False
+
+    async def get_by_source_identity(
+        self,
+        source_name: str,
+        external_id: str,
+    ) -> Internship | None:
+        model = await self._get_model_by_source_identity(source_name, external_id)
+        return model.to_entity() if model else None
 
     async def list_available(self, target_date: date) -> list[Internship]:
         threshold = datetime.combine(target_date, time.min, tzinfo=timezone.utc)
@@ -55,3 +83,41 @@ class SQLAlchemyInternshipRepository(InternshipRepository):
         )
         model = result.scalar_one_or_none()
         return model.to_entity() if model else None
+
+    async def mark_missing_external_inactive(
+        self,
+        source_name: str,
+        external_ids: set[str],
+    ) -> int:
+        conditions = [
+            InternshipModel.source_name == source_name,
+            InternshipModel.source_type == "external_api",
+            InternshipModel.is_active.is_(True),
+        ]
+        if external_ids:
+            conditions.append(not_(InternshipModel.external_id.in_(external_ids)))
+
+        result = await self._session.execute(
+            update(InternshipModel)
+            .where(and_(*conditions))
+            .values(
+                is_active=False,
+                expires_at=datetime.now(timezone.utc),
+                modified_at=func.now(),
+            )
+        )
+        await self._session.flush()
+        return int(result.rowcount or 0)
+
+    async def _get_model_by_source_identity(
+        self,
+        source_name: str,
+        external_id: str,
+    ) -> InternshipModel | None:
+        result = await self._session.execute(
+            select(InternshipModel).where(
+                InternshipModel.source_name == source_name,
+                InternshipModel.external_id == external_id,
+            )
+        )
+        return result.scalar_one_or_none()
