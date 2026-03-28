@@ -13,6 +13,7 @@ class University(BaseModel):
     domain: str = ""          # e.g., msstate.edu
     country: str = ""
     is_active: bool = True
+    keycloak_user_id: str | None = None   # Keycloak sub of the managing account
 
     # ── Business rules ──────────────────────────────────────────────────────
 
