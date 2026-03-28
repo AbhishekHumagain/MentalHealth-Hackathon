@@ -5,6 +5,7 @@ from app.infrastructure.database.models.chat_models import (  # noqa: F401
     ChatMessageModel,
     ChatRequestModel,
 )
+from app.infrastructure.database.models.apartment_model import ApartmentModel  # noqa: F401
 
 __all__ = [
     "UniversityModel",
@@ -12,4 +13,5 @@ __all__ = [
     "ChatRoomMemberModel",
     "ChatMessageModel",
     "ChatRequestModel",
+    "ApartmentModel",
 ]
