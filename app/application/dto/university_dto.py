@@ -10,6 +10,7 @@ class CreateUniversityDTO:
     domain: str
     country: str
     requesting_user_id: str | None = None
+    keycloak_user_id: str | None = None
 
 
 ##Update DTO with optional fields for partial updates (PATCH)
@@ -30,5 +31,6 @@ class UniversityResponseDTO(BaseModel):
     domain: str
     country: str
     is_active: bool
+    keycloak_user_id: str | None = None
     created_at: datetime
     modified_at: datetime

@@ -26,6 +26,9 @@ class UniversityModel(Base):
     domain: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     country: Mapped[str] = mapped_column(String(100), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    keycloak_user_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True, index=True
+    )
 
     # ── Audit fields ──────────────────────────────────────────────────────────
     created_at: Mapped[datetime] = mapped_column(
@@ -50,6 +53,7 @@ class UniversityModel(Base):
             domain=entity.domain,
             country=entity.country,
             is_active=entity.is_active,
+            keycloak_user_id=entity.keycloak_user_id,
             created_at=entity.created_at,
             modified_at=entity.modified_at,
         )
@@ -61,6 +65,7 @@ class UniversityModel(Base):
             domain=self.domain,
             country=self.country,
             is_active=self.is_active,
+            keycloak_user_id=self.keycloak_user_id,
             created_at=self.created_at,
             modified_at=self.modified_at,
         )
@@ -70,4 +75,5 @@ class UniversityModel(Base):
         self.domain = entity.domain
         self.country = entity.country
         self.is_active = entity.is_active
+        self.keycloak_user_id = entity.keycloak_user_id
         self.modified_at = entity.modified_at
