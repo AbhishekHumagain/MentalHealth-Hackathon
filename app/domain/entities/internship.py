@@ -15,10 +15,14 @@ class Internship(BaseModel):
     application_url: str = ""
     posted_by: str = ""
     source_type: str = "manual"
+    external_id: str | None = None
+    source_name: str | None = None
+    source_url: str | None = None
     majors: list[str] = field(default_factory=list)
     keywords: list[str] = field(default_factory=list)
     is_active: bool = True
     expires_at: datetime | None = None
+    last_seen_at: datetime | None = None
 
     def is_available_on(self, target_date: date) -> bool:
         if not self.is_active:

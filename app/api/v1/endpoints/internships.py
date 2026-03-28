@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
@@ -9,10 +9,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user_id
 from app.application.dto.internship_dto import CreateInternshipDTO, InternshipResponseDTO
+from app.application.dto.internship_sync_dto import InternshipSyncResultDTO
 from app.application.use_cases.create_internship import CreateInternshipUseCase
 from app.application.use_cases.list_internships import ListInternshipsUseCase
+from app.application.use_cases.sync_external_internships import SyncExternalInternshipsUseCase
+from app.infrastructure.database.repositories.internship_recommendation_repository_impl import (
+    SQLAlchemyInternshipRecommendationRepository,
+)
 from app.infrastructure.database.repositories.internship_repository_impl import (
     SQLAlchemyInternshipRepository,
+)
+from app.infrastructure.database.repositories.student_profile_repository_impl import (
+    SQLAlchemyStudentProfileRepository,
 )
 from app.infrastructure.database.session import get_async_session
 
@@ -44,10 +52,14 @@ class InternshipResponse(BaseModel):
     application_url: str
     posted_by: str
     source_type: str
+    external_id: str | None
+    source_name: str | None
+    source_url: str | None
     majors: list[str]
     keywords: list[str]
     is_active: bool
     expires_at: datetime | None
+    last_seen_at: datetime | None
     created_at: datetime
     modified_at: datetime
 
@@ -59,12 +71,34 @@ class InternshipListResponse(BaseModel):
     limit: int
 
 
+class InternshipSyncResponse(BaseModel):
+    target_date: date
+    fetched: int
+    created: int
+    updated: int
+    deactivated: int
+    skipped: int
+    recommendations_generated: int
+
+
 def get_repo(session: DbSession) -> SQLAlchemyInternshipRepository:
     return SQLAlchemyInternshipRepository(session)
 
 
+def get_profile_repo(session: DbSession) -> SQLAlchemyStudentProfileRepository:
+    return SQLAlchemyStudentProfileRepository(session)
+
+
+def get_recommendation_repo(session: DbSession) -> SQLAlchemyInternshipRecommendationRepository:
+    return SQLAlchemyInternshipRecommendationRepository(session)
+
+
 def _to_http(dto: InternshipResponseDTO) -> InternshipResponse:
     return InternshipResponse(**dto.model_dump())
+
+
+def _to_sync_http(dto: InternshipSyncResultDTO) -> InternshipSyncResponse:
+    return InternshipSyncResponse(**dto.model_dump())
 
 
 @router.post("/", response_model=InternshipResponse, status_code=status.HTTP_201_CREATED)
@@ -94,3 +128,20 @@ async def list_internships(
         skip=skip,
         limit=limit,
     )
+
+
+@router.post("/sync", response_model=InternshipSyncResponse)
+async def sync_external_internships(
+    target_date: date = Query(default_factory=date.today),
+    internships: SQLAlchemyInternshipRepository = Depends(get_repo),
+    profiles: SQLAlchemyStudentProfileRepository = Depends(get_profile_repo),
+    recommendations: SQLAlchemyInternshipRecommendationRepository = Depends(
+        get_recommendation_repo
+    ),
+):
+    result = await SyncExternalInternshipsUseCase(
+        internships=internships,
+        profiles=profiles,
+        recommendations=recommendations,
+    ).execute(target_date)
+    return _to_sync_http(result)

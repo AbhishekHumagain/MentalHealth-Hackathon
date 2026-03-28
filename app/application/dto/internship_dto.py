@@ -15,10 +15,14 @@ class CreateInternshipDTO:
     application_url: str
     posted_by: str
     source_type: str = "manual"
+    external_id: str | None = None
+    source_name: str | None = None
+    source_url: str | None = None
     majors: list[str] = field(default_factory=list)
     keywords: list[str] = field(default_factory=list)
     is_active: bool = True
     expires_at: datetime | None = None
+    last_seen_at: datetime | None = None
 
 
 class InternshipResponseDTO(BaseModel):
@@ -30,9 +34,13 @@ class InternshipResponseDTO(BaseModel):
     application_url: str
     posted_by: str
     source_type: str
+    external_id: str | None
+    source_name: str | None
+    source_url: str | None
     majors: list[str]
     keywords: list[str]
     is_active: bool
     expires_at: datetime | None
+    last_seen_at: datetime | None
     created_at: datetime
     modified_at: datetime
