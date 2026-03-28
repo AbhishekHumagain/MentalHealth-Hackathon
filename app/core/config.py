@@ -45,6 +45,17 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO")
     log_format: str = Field(default="json")
 
+    # ── Keycloak ──────────────────────────────────────────────────────────────
+    keycloak_url: str = Field(default="http://localhost:8080")
+    keycloak_realm: str = Field(default="hackathon")
+    keycloak_client_id: str = Field(default="hackathon-api")
+    keycloak_client_secret: str = Field(default="hackathon-api-secret")
+    # Master realm admin — used only for Admin REST API calls (create/delete users)
+    keycloak_admin_user: str = Field(default="admin")
+    keycloak_admin_password: str = Field(default="admin")
+    # Used to protect admin registration endpoint
+    admin_registration_secret: str = Field(default="change-me-admin-secret")
+
     # ── CORS ──────────────────────────────────────────────────────────────────
     allowed_origins: list[str] = Field(default=["http://localhost:3000"])
 

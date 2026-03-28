@@ -41,3 +41,8 @@ class UniversityRepository(ABC):
     async def delete(self, university_id: str) -> bool:
         #Delete university. Returns True if deleted, False if not found
         raise NotImplementedError
+
+    @abstractmethod
+    async def get_by_keycloak_user_id(self, keycloak_user_id: str) -> University | None:
+        """Return the university managed by the given Keycloak user, or None."""
+        raise NotImplementedError

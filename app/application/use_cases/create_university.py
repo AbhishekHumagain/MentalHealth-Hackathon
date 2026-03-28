@@ -19,6 +19,7 @@ class CreateUniversityUseCase:
             name=dto.name,
             domain=dto.domain,
             country=dto.country,
+            keycloak_user_id=dto.keycloak_user_id,
             created_by=dto.requesting_user_id,
         )
 
@@ -33,6 +34,7 @@ def _to_response_dto(entity: University) -> UniversityResponseDTO:
         domain=entity.domain,
         country=entity.country,
         is_active=entity.is_active,
+        keycloak_user_id=entity.keycloak_user_id,
         created_at=entity.created_at,
         modified_at=entity.modified_at,
     )

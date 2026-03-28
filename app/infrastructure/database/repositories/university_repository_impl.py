@@ -64,6 +64,13 @@ class SQLAlchemyUniversityRepository(UniversityRepository):
         await self._session.flush()
         return True
 
+    async def get_by_keycloak_user_id(self, keycloak_user_id: str) -> University | None:
+        result = await self._session.execute(
+            select(UniversityModel).where(UniversityModel.keycloak_user_id == keycloak_user_id)
+        )
+        model = result.scalar_one_or_none()
+        return model.to_entity() if model else None
+
     # ── Helper ────────────────────────────────────────────────────────────────
 
     async def _fetch_model(self, university_id: str) -> UniversityModel | None:
