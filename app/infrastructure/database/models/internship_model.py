@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, Boolean, DateTime, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -32,7 +32,9 @@ class InternshipModel(Base):
     keywords: Mapped[list[str]] = mapped_column(ARRAY(String()), nullable=False, default=list)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    raw_payload: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -57,7 +59,9 @@ class InternshipModel(Base):
             keywords=list(self.keywords),
             is_active=self.is_active,
             expires_at=self.expires_at,
+            first_seen_at=self.first_seen_at,
             last_seen_at=self.last_seen_at,
+            raw_payload=self.raw_payload,
             created_at=self.created_at,
             modified_at=self.modified_at,
         )
@@ -80,7 +84,9 @@ class InternshipModel(Base):
             keywords=entity.keywords,
             is_active=entity.is_active,
             expires_at=entity.expires_at,
+            first_seen_at=entity.first_seen_at,
             last_seen_at=entity.last_seen_at,
+            raw_payload=entity.raw_payload,
             created_at=entity.created_at,
             modified_at=entity.modified_at,
         )
@@ -100,5 +106,7 @@ class InternshipModel(Base):
         self.keywords = entity.keywords
         self.is_active = entity.is_active
         self.expires_at = entity.expires_at
+        self.first_seen_at = entity.first_seen_at
         self.last_seen_at = entity.last_seen_at
+        self.raw_payload = entity.raw_payload
         self.modified_at = entity.modified_at

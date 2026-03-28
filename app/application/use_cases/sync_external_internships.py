@@ -4,8 +4,8 @@ from datetime import date, datetime, timezone
 
 from app.application.dto.internship_sync_dto import InternshipSyncResultDTO
 from app.application.services.external_internship_provider import (
+    AdzunaInternshipProvider,
     ExternalInternshipProvider,
-    RemotiveInternshipProvider,
 )
 from app.application.services.major_taxonomy import MajorTaxonomyService
 from app.domain.entities.internship import Internship
@@ -32,10 +32,11 @@ class SyncExternalInternshipsUseCase:
         self._internships = internships
         self._profiles = profiles
         self._recommendations = recommendations
-        self._provider = provider or RemotiveInternshipProvider()
+        self._provider = provider or AdzunaInternshipProvider()
         self._taxonomy = taxonomy or MajorTaxonomyService()
 
     async def execute(self, target_date: date) -> InternshipSyncResultDTO:
+        provider_source_name = getattr(self._provider, "SOURCE_NAME", "external_api")
         search_terms = sorted(
             {
                 term
@@ -56,6 +57,11 @@ class SyncExternalInternshipsUseCase:
                 continue
 
             seen_ids.add(record.external_id)
+            existing = await self._internships.get_by_source_identity(
+                record.source_name,
+                record.external_id,
+            )
+            now = datetime.now(timezone.utc)
             saved, was_created = await self._internships.upsert_by_source(
                 Internship(
                     title=record.title,
@@ -72,7 +78,14 @@ class SyncExternalInternshipsUseCase:
                     keywords=record.keywords,
                     is_active=True,
                     expires_at=record.expires_at,
-                    last_seen_at=record.last_seen_at or datetime.now(timezone.utc),
+                    first_seen_at=(
+                        record.first_seen_at
+                        or (existing.first_seen_at if existing else None)
+                        or record.last_seen_at
+                        or now
+                    ),
+                    last_seen_at=record.last_seen_at or now,
+                    raw_payload=record.raw_payload,
                 )
             )
             if was_created:
@@ -80,7 +93,10 @@ class SyncExternalInternshipsUseCase:
             else:
                 updated += 1
 
-        deactivated = await self._internships.mark_missing_external_inactive("remotive", seen_ids)
+        deactivated = await self._internships.mark_missing_external_inactive(
+            provider_source_name,
+            seen_ids,
+        )
         recommendations_generated = await GenerateDailyRecommendationsUseCase(
             profiles=self._profiles,
             internships=self._internships,

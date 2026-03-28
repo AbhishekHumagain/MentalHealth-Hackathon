@@ -16,6 +16,14 @@ class InternshipRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def get_by_source_identity(
+        self,
+        source_name: str,
+        external_id: str,
+    ) -> Internship | None:
+        raise NotImplementedError
+
+    @abstractmethod
     async def list_available(self, target_date: date) -> list[Internship]:
         raise NotImplementedError
 

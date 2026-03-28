@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -139,9 +139,12 @@ async def sync_external_internships(
         get_recommendation_repo
     ),
 ):
-    result = await SyncExternalInternshipsUseCase(
-        internships=internships,
-        profiles=profiles,
-        recommendations=recommendations,
-    ).execute(target_date)
+    try:
+        result = await SyncExternalInternshipsUseCase(
+            internships=internships,
+            profiles=profiles,
+            recommendations=recommendations,
+        ).execute(target_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return _to_sync_http(result)

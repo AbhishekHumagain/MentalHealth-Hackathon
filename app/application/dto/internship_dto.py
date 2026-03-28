@@ -22,7 +22,9 @@ class CreateInternshipDTO:
     keywords: list[str] = field(default_factory=list)
     is_active: bool = True
     expires_at: datetime | None = None
+    first_seen_at: datetime | None = None
     last_seen_at: datetime | None = None
+    raw_payload: dict[str, object] | None = None
 
 
 class InternshipResponseDTO(BaseModel):
@@ -41,6 +43,8 @@ class InternshipResponseDTO(BaseModel):
     keywords: list[str]
     is_active: bool
     expires_at: datetime | None
+    first_seen_at: datetime | None
     last_seen_at: datetime | None
+    raw_payload: dict[str, object] | None
     created_at: datetime
     modified_at: datetime

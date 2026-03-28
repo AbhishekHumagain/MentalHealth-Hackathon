@@ -26,7 +26,9 @@ class CreateInternshipUseCase:
             keywords=dto.keywords,
             is_active=dto.is_active,
             expires_at=dto.expires_at,
+            first_seen_at=dto.first_seen_at,
             last_seen_at=dto.last_seen_at,
+            raw_payload=dto.raw_payload,
         )
         )
         return _to_dto(saved)
@@ -49,7 +51,9 @@ def _to_dto(internship: Internship) -> InternshipResponseDTO:
         keywords=internship.keywords,
         is_active=internship.is_active,
         expires_at=internship.expires_at,
+        first_seen_at=internship.first_seen_at,
         last_seen_at=internship.last_seen_at,
+        raw_payload=internship.raw_payload,
         created_at=internship.created_at,
         modified_at=internship.modified_at,
     )

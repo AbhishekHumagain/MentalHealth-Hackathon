@@ -27,21 +27,28 @@ class SQLAlchemyInternshipRepository(InternshipRepository):
             saved = await self.create(internship)
             return saved, True
 
-        result = await self._session.execute(
-            select(InternshipModel).where(
-                InternshipModel.source_name == internship.source_name,
-                InternshipModel.external_id == internship.external_id,
-            )
+        model = await self._get_model_by_source_identity(
+            internship.source_name,
+            internship.external_id,
         )
-        model = result.scalar_one_or_none()
         if model is None:
             saved = await self.create(internship)
             return saved, True
 
+        if internship.first_seen_at is None:
+            internship.first_seen_at = model.first_seen_at
         model.apply_entity(internship)
         await self._session.flush()
         await self._session.refresh(model)
         return model.to_entity(), False
+
+    async def get_by_source_identity(
+        self,
+        source_name: str,
+        external_id: str,
+    ) -> Internship | None:
+        model = await self._get_model_by_source_identity(source_name, external_id)
+        return model.to_entity() if model else None
 
     async def list_available(self, target_date: date) -> list[Internship]:
         threshold = datetime.combine(target_date, time.min, tzinfo=timezone.utc)
@@ -101,3 +108,16 @@ class SQLAlchemyInternshipRepository(InternshipRepository):
         )
         await self._session.flush()
         return int(result.rowcount or 0)
+
+    async def _get_model_by_source_identity(
+        self,
+        source_name: str,
+        external_id: str,
+    ) -> InternshipModel | None:
+        result = await self._session.execute(
+            select(InternshipModel).where(
+                InternshipModel.source_name == source_name,
+                InternshipModel.external_id == external_id,
+            )
+        )
+        return result.scalar_one_or_none()
