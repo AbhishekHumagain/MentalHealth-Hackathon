@@ -20,3 +20,47 @@ pytest-cache-files-*
 .vscode
 Thumbs.db
 .DS_Store
+# Never bake local secrets / env files into the image
+.env
+.env.*
+!.env.example
+
+# Git
+.git
+.gitignore
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test artefacts
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Docker (don't include compose files in the image)
+docker-compose*.yml
+Dockerfile*
+
+# OS
+.DS_Store
+Thumbs.db
