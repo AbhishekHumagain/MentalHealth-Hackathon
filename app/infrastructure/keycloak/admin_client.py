@@ -11,6 +11,8 @@ regardless of import order.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import httpx
 
 from app.core.config import get_settings
@@ -20,6 +22,19 @@ class KeycloakAdminError(Exception):
     def __init__(self, status: int, detail: str) -> None:
         self.status = status
         super().__init__(detail)
+
+
+@dataclass(frozen=True)
+class KeycloakUserSummary:
+    id: str
+    email: str
+    first_name: str = ""
+    last_name: str = ""
+
+    @property
+    def display_name(self) -> str:
+        full_name = f"{self.first_name} {self.last_name}".strip()
+        return full_name or self.email
 
 
 # ── Lazy URL helpers (computed fresh on every call) ───────────────────────────
@@ -188,6 +203,27 @@ async def refresh_tokens(refresh_token: str) -> dict:
         return resp.json()
 
 
+async def search_users(query: str, *, max_results: int = 20) -> list[KeycloakUserSummary]:
+    """Search realm users by name/email in a case-insensitive, user-facing way."""
+    normalized_query = query.strip()
+    if not normalized_query:
+        return []
+
+    async with httpx.AsyncClient() as client:
+        token = await _get_admin_token(client)
+        resp = await client.get(
+            f"{_base()}/users",
+            headers=_auth(token),
+            params={
+                "search": normalized_query,
+                "max": max_results,
+            },
+        )
+        if resp.status_code != 200:
+            raise KeycloakAdminError(resp.status_code, f"User search failed: {resp.text}")
+        return _filter_users(resp.json(), normalized_query, max_results)
+
+
 def google_sso_url(redirect_uri: str, public_keycloak_url: str | None = None) -> str:
     """Return the Keycloak URL that initiates Google SSO.
 
@@ -207,3 +243,55 @@ def google_sso_url(redirect_uri: str, public_keycloak_url: str | None = None) ->
         }
     )
     return f"{base_url}/realms/{_realm()}/protocol/openid-connect/auth?{params}"
+
+
+def _filter_users(
+    users: list[dict],
+    query: str,
+    max_results: int,
+) -> list[KeycloakUserSummary]:
+    lowered_query = query.lower()
+    matches: list[KeycloakUserSummary] = []
+    seen_ids: set[str] = set()
+
+    for item in users:
+        user_id = str(item.get("id") or "").strip()
+        if not user_id or user_id in seen_ids:
+            continue
+        if not item.get("enabled", True):
+            continue
+
+        username = str(item.get("username") or "").strip()
+        if username.startswith("service-account-"):
+            continue
+
+        email = str(item.get("email") or username).strip()
+        first_name = str(item.get("firstName") or "").strip()
+        last_name = str(item.get("lastName") or "").strip()
+        searchable = " ".join(
+            part
+            for part in (
+                first_name,
+                last_name,
+                f"{first_name} {last_name}".strip(),
+                email,
+                username,
+            )
+            if part
+        ).lower()
+        if lowered_query not in searchable:
+            continue
+
+        seen_ids.add(user_id)
+        matches.append(
+            KeycloakUserSummary(
+                id=user_id,
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+            )
+        )
+        if len(matches) >= max_results:
+            break
+
+    return matches
