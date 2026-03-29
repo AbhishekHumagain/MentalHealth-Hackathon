@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.application.dto.event_dto import EventResponseDTO, UpdateEventDTO
+from app.application.services.listing_risk import ListingRiskService
 from app.application.services.event_validation import validate_event_payload
 from app.application.use_cases.create_event import _to_dto
 from app.domain.exceptions.event import EventNotFoundError, UnauthorizedEventUpdateError
@@ -8,8 +9,13 @@ from app.domain.repositories.event_repository import EventRepository
 
 
 class UpdateEventUseCase:
-    def __init__(self, repo: EventRepository) -> None:
+    def __init__(
+        self,
+        repo: EventRepository,
+        risk_service: ListingRiskService | None = None,
+    ) -> None:
         self._repo = repo
+        self._risk_service = risk_service or ListingRiskService()
 
     async def execute(self, dto: UpdateEventDTO) -> EventResponseDTO:
         event = await self._repo.get_by_id(dto.event_id)
@@ -47,6 +53,17 @@ class UpdateEventUseCase:
             start_at=event.start_at,
             end_at=event.end_at,
         )
+        risk = self._risk_service.analyze_event(
+            title=event.title,
+            description=event.description,
+            organizer_name=event.organizer_name,
+            location=event.location,
+            meeting_url=event.meeting_url,
+            mode=event.mode,
+        )
+        event.risk_score = risk.score
+        event.risk_level = risk.level
+        event.risk_reasons = risk.reasons
         event.mark_modified(dto.editor_user_id)
         saved = await self._repo.update(event)
         return _to_dto(saved)

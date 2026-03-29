@@ -31,6 +31,9 @@ class InternshipModel(Base):
     majors: Mapped[list[str]] = mapped_column(ARRAY(String()), nullable=False, default=list)
     keywords: Mapped[list[str]] = mapped_column(ARRAY(String()), nullable=False, default=list)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    risk_score: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    risk_level: Mapped[str] = mapped_column(String(20), nullable=False, default="low")
+    risk_reasons: Mapped[list[str]] = mapped_column(ARRAY(String()), nullable=False, default=list)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -58,6 +61,9 @@ class InternshipModel(Base):
             majors=list(self.majors),
             keywords=list(self.keywords),
             is_active=self.is_active,
+            risk_score=self.risk_score,
+            risk_level=self.risk_level,
+            risk_reasons=list(self.risk_reasons),
             expires_at=self.expires_at,
             first_seen_at=self.first_seen_at,
             last_seen_at=self.last_seen_at,
@@ -83,6 +89,9 @@ class InternshipModel(Base):
             majors=entity.majors,
             keywords=entity.keywords,
             is_active=entity.is_active,
+            risk_score=entity.risk_score,
+            risk_level=entity.risk_level,
+            risk_reasons=entity.risk_reasons,
             expires_at=entity.expires_at,
             first_seen_at=entity.first_seen_at,
             last_seen_at=entity.last_seen_at,
@@ -105,6 +114,9 @@ class InternshipModel(Base):
         self.majors = entity.majors
         self.keywords = entity.keywords
         self.is_active = entity.is_active
+        self.risk_score = entity.risk_score
+        self.risk_level = entity.risk_level
+        self.risk_reasons = entity.risk_reasons
         self.expires_at = entity.expires_at
         self.first_seen_at = entity.first_seen_at
         self.last_seen_at = entity.last_seen_at

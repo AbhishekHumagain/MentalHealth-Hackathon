@@ -27,6 +27,9 @@ class EventModel(Base):
     end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     tags: Mapped[list[str]] = mapped_column(ARRAY(String()), nullable=False, default=list)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    risk_score: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    risk_level: Mapped[str] = mapped_column(String(20), nullable=False, default="low")
+    risk_reasons: Mapped[list[str]] = mapped_column(ARRAY(String()), nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -49,6 +52,9 @@ class EventModel(Base):
             end_at=self.end_at,
             tags=list(self.tags),
             is_active=self.is_active,
+            risk_score=self.risk_score,
+            risk_level=self.risk_level,
+            risk_reasons=list(self.risk_reasons),
             created_at=self.created_at,
             modified_at=self.modified_at,
         )
@@ -69,6 +75,9 @@ class EventModel(Base):
             end_at=entity.end_at,
             tags=entity.tags,
             is_active=entity.is_active,
+            risk_score=entity.risk_score,
+            risk_level=entity.risk_level,
+            risk_reasons=entity.risk_reasons,
             created_at=entity.created_at,
             modified_at=entity.modified_at,
         )
@@ -84,4 +93,7 @@ class EventModel(Base):
         self.end_at = entity.end_at
         self.tags = entity.tags
         self.is_active = entity.is_active
+        self.risk_score = entity.risk_score
+        self.risk_level = entity.risk_level
+        self.risk_reasons = entity.risk_reasons
         self.modified_at = entity.modified_at

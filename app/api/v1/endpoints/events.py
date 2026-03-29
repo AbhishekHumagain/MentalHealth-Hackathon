@@ -76,6 +76,9 @@ class EventResponse(BaseModel):
     end_at: datetime
     tags: list[str]
     is_active: bool
+    risk_score: float
+    risk_level: str
+    risk_reasons: list[str]
     rsvp_count: int
     my_rsvp_status: str | None = None
     created_at: datetime
@@ -167,6 +170,9 @@ async def _to_http(
         end_at=dto.end_at,
         tags=dto.tags,
         is_active=dto.is_active,
+        risk_score=dto.risk_score,
+        risk_level=dto.risk_level,
+        risk_reasons=dto.risk_reasons,
         rsvp_count=await rsvp_repo.count_for_event(event_id=dto.id),
         my_rsvp_status=my_rsvp.status if my_rsvp else None,
         created_at=dto.created_at,

@@ -58,6 +58,9 @@ class InternshipResponse(BaseModel):
     majors: list[str]
     keywords: list[str]
     is_active: bool
+    risk_score: float
+    risk_level: str
+    risk_reasons: list[str]
     expires_at: datetime | None
     last_seen_at: datetime | None
     created_at: datetime
