@@ -20,8 +20,15 @@ class CreateApartmentDTO(BaseModel):
     images_urls: list[str] = Field(default_factory=list)
     amenities: list[str] = Field(default_factory=list)
     posted_by: str = ""
-    contact_email: str = ""
+    source_type: str = "manual"
+    external_id: str | None = None
+    source_name: str | None = None
+    source_url: str | None = None
+    contact_email: str | None = None
     contact_phone: str | None = None
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    raw_payload: dict[str, object] | None = None
 
 
 class ApartmentResponseDTO(BaseModel):
@@ -41,8 +48,15 @@ class ApartmentResponseDTO(BaseModel):
     images_urls: list[str]
     amenities: list[str]
     posted_by: str
-    contact_email: str
+    source_type: str
+    external_id: str | None
+    source_name: str | None
+    source_url: str | None
+    contact_email: str | None
     contact_phone: str | None
+    first_seen_at: datetime | None
+    last_seen_at: datetime | None
+    raw_payload: dict[str, object] | None = None
     created_at: datetime
     modified_at: datetime
 
