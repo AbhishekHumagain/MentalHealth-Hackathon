@@ -30,6 +30,8 @@ class EventModel(Base):
     risk_score: Mapped[float] = mapped_column(nullable=False, default=0.0)
     risk_level: Mapped[str] = mapped_column(String(20), nullable=False, default="low")
     risk_reasons: Mapped[list[str]] = mapped_column(ARRAY(String()), nullable=False, default=list)
+    banner_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    image_urls: Mapped[list[str]] = mapped_column(ARRAY(String(1000)), nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -55,6 +57,8 @@ class EventModel(Base):
             risk_score=self.risk_score,
             risk_level=self.risk_level,
             risk_reasons=list(self.risk_reasons),
+            banner_url=self.banner_url,
+            image_urls=list(self.image_urls or []),
             created_at=self.created_at,
             modified_at=self.modified_at,
         )
@@ -78,6 +82,8 @@ class EventModel(Base):
             risk_score=entity.risk_score,
             risk_level=entity.risk_level,
             risk_reasons=entity.risk_reasons,
+            banner_url=entity.banner_url,
+            image_urls=list(entity.image_urls),
             created_at=entity.created_at,
             modified_at=entity.modified_at,
         )
@@ -96,4 +102,6 @@ class EventModel(Base):
         self.risk_score = entity.risk_score
         self.risk_level = entity.risk_level
         self.risk_reasons = entity.risk_reasons
+        self.banner_url = entity.banner_url
+        self.image_urls = list(entity.image_urls)
         self.modified_at = entity.modified_at

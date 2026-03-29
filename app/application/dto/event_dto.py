@@ -23,6 +23,8 @@ class CreateEventDTO:
     risk_score: float = 0.0
     risk_level: str = "low"
     risk_reasons: list[str] = field(default_factory=list)
+    banner_url: str | None = None
+    image_urls: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -59,5 +61,7 @@ class EventResponseDTO(BaseModel):
     risk_score: float
     risk_level: str
     risk_reasons: list[str]
+    banner_url: str | None = None
+    image_urls: list[str] = field(default_factory=list)
     created_at: datetime
     modified_at: datetime

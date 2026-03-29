@@ -23,6 +23,21 @@ class Event(BaseModel):
     risk_score: float = 0.0
     risk_level: str = "low"
     risk_reasons: list[str] = field(default_factory=list)
+    banner_url: str | None = None
+    image_urls: list[str] = field(default_factory=list)
+
+    MAX_IMAGES: int = field(default=7, init=False, repr=False, compare=False)
+
+    def add_image(self, url: str) -> None:
+        if len(self.image_urls) >= 7:
+            raise ValueError("Maximum of 7 images allowed per event.")
+        self.image_urls.append(url)
+
+    def remove_image(self, url: str) -> bool:
+        if url in self.image_urls:
+            self.image_urls.remove(url)
+            return True
+        return False
 
     def is_upcoming(self, now: datetime) -> bool:
         return self.is_active and self.start_at is not None and self.start_at >= now
