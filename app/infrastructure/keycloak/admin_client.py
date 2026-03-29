@@ -224,6 +224,55 @@ async def search_users(query: str, *, max_results: int = 20) -> list[KeycloakUse
         return _filter_users(resp.json(), normalized_query, max_results)
 
 
+async def get_user_by_id(user_id: str) -> KeycloakUserSummary | None:
+    async with httpx.AsyncClient() as client:
+        token = await _get_admin_token(client)
+        resp = await client.get(f"{_base()}/users/{user_id}", headers=_auth(token))
+        if resp.status_code == 404:
+            return None
+        if resp.status_code != 200:
+            raise KeycloakAdminError(resp.status_code, f"Get user failed: {resp.text}")
+        item = resp.json()
+        if not item.get("enabled", True):
+            return None
+        username = str(item.get("username") or "").strip()
+        if username.startswith("service-account-"):
+            return None
+        return KeycloakUserSummary(
+            id=str(item.get("id") or user_id),
+            email=str(item.get("email") or username).strip(),
+            first_name=str(item.get("firstName") or "").strip(),
+            last_name=str(item.get("lastName") or "").strip(),
+        )
+
+
+async def get_users_by_ids(user_ids: list[str]) -> dict[str, KeycloakUserSummary]:
+    summaries: dict[str, KeycloakUserSummary] = {}
+    async with httpx.AsyncClient() as client:
+        token = await _get_admin_token(client)
+        for user_id in user_ids:
+            if not user_id or user_id in summaries:
+                continue
+            resp = await client.get(f"{_base()}/users/{user_id}", headers=_auth(token))
+            if resp.status_code == 404:
+                continue
+            if resp.status_code != 200:
+                raise KeycloakAdminError(resp.status_code, f"Get user failed: {resp.text}")
+            item = resp.json()
+            if not item.get("enabled", True):
+                continue
+            username = str(item.get("username") or "").strip()
+            if username.startswith("service-account-"):
+                continue
+            summaries[user_id] = KeycloakUserSummary(
+                id=str(item.get("id") or user_id),
+                email=str(item.get("email") or username).strip(),
+                first_name=str(item.get("firstName") or "").strip(),
+                last_name=str(item.get("lastName") or "").strip(),
+            )
+    return summaries
+
+
 def google_sso_url(redirect_uri: str, public_keycloak_url: str | None = None) -> str:
     """Return the Keycloak URL that initiates Google SSO.
 

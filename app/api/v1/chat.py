@@ -7,9 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user_id
 from app.application.dto.chat_dto import (
-    ChatRequestResponseDTO, ChatRoomListResponseDTO,
-    ChatRoomResponseDTO, ChatUserSearchListResponseDTO, RespondChatRequestDTO,
-    SendChatRequestDTO,
+    ChatMessageResponseDTO, ChatRelationshipStatusDTO, ChatRequestResponseDTO,
+    ChatRoomListResponseDTO, ChatRoomResponseDTO, ChatUserSearchListResponseDTO,
+    RespondChatRequestDTO, SendChatRequestDTO, SendMessageDTO,
 )
 from app.application.use_cases.chat_use_cases import (
     GetMessagesUseCase, GetMyRoomsUseCase, GetOrCreateAssociationRoomUseCase,
@@ -18,7 +18,8 @@ from app.application.use_cases.chat_use_cases import (
 )
 from app.domain.exceptions.chat_exceptions import (
     ChatRequestAlreadyExists, ChatRequestAlreadyHandled,
-    ChatRequestNotFound, ChatRoomNotFound, NotARoomMember,
+    ChatRequestForbidden, ChatRequestNotFound, ChatRoomNotFound,
+    DirectChatAlreadyExists, NotARoomMember,
 )
 from app.infrastructure.database.repositories.chat_repo_impl import SQLChatRepository
 from app.infrastructure.database.session import get_async_session
@@ -40,21 +41,119 @@ def _parse_user_id(user_id: str) -> UUID:
         raise HTTPException(status_code=400, detail="Authenticated user id is not a valid UUID.") from exc
 
 
+async def _target_user_exists(user_id: str) -> bool:
+    return await kc.get_user_by_id(user_id) is not None
+
+
+async def _load_user_lookup(user_ids: set[UUID]) -> dict[UUID, kc.KeycloakUserSummary]:
+    raw_lookup = await kc.get_users_by_ids([str(user_id) for user_id in user_ids])
+    return {UUID(user_id): summary for user_id, summary in raw_lookup.items()}
+
+
+def _build_request_response(
+    request,
+    user_lookup: dict[UUID, kc.KeycloakUserSummary],
+) -> ChatRequestResponseDTO:
+    from_summary = user_lookup.get(request.from_user_id)
+    to_summary = user_lookup.get(request.to_user_id)
+    return ChatRequestResponseDTO(
+        id=request.id,
+        from_user_id=request.from_user_id,
+        to_user_id=request.to_user_id,
+        status=request.status,
+        created_at=request.created_at,
+        room_id=request.room_id,
+        from_user_display_name=from_summary.display_name if from_summary else None,
+        from_user_email=from_summary.email if from_summary else None,
+        to_user_display_name=to_summary.display_name if to_summary else None,
+        to_user_email=to_summary.email if to_summary else None,
+    )
+
+
+async def _build_room_response(
+    room,
+    *,
+    current_user_id: UUID,
+    repo: SQLChatRepository,
+    user_lookup: dict[UUID, kc.KeycloakUserSummary],
+) -> ChatRoomResponseDTO:
+    member_ids = await repo.get_room_member_ids(room.id)
+    latest_message = await repo.get_latest_message(room.id)
+
+    direct_user_id = None
+    direct_display_name = None
+    direct_email = None
+    if room.room_type.value == "direct":
+        direct_user_id = next((member_id for member_id in member_ids if member_id != current_user_id), None)
+        if direct_user_id is not None:
+            direct_user = user_lookup.get(direct_user_id)
+            if direct_user is not None:
+                direct_display_name = direct_user.display_name
+                direct_email = direct_user.email
+
+    return ChatRoomResponseDTO(
+        id=room.id,
+        room_type=room.room_type,
+        association_id=room.association_id,
+        name=room.name,
+        created_at=room.created_at,
+        member_ids=member_ids,
+        direct_user_id=direct_user_id,
+        direct_display_name=direct_display_name,
+        direct_email=direct_email,
+        last_message_preview=latest_message.content if latest_message else None,
+        last_message_at=latest_message.created_at if latest_message else None,
+    )
+
+
 @router.get("/users/search", response_model=ChatUserSearchListResponseDTO)
 async def search_chat_users(
     q: str = Query(..., min_length=1, max_length=100),
     limit: int = Query(20, ge=1, le=50),
     current_user_id: str = Depends(get_current_user_id),
+    repo: SQLChatRepository = Depends(get_chat_repo),
 ):
+    current_user_uuid = _parse_user_id(current_user_id)
     try:
         results = await SearchChatUsersUseCase(kc.search_users).execute(
             query=q,
-            current_user_id=_parse_user_id(current_user_id),
+            current_user_id=current_user_uuid,
             limit=limit,
         )
     except kc.KeycloakAdminError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return ChatUserSearchListResponseDTO(users=results)
+
+    enriched_results = []
+    for result in results:
+        room = await repo.get_direct_room_for_users(current_user_uuid, result.id)
+        existing_request = await repo.get_existing_request(current_user_uuid, result.id)
+        relationship_status = ChatRelationshipStatusDTO.NONE
+        room_id = room.id if room else None
+        request_id = None
+
+        if room is not None:
+            relationship_status = ChatRelationshipStatusDTO.CONNECTED
+        elif existing_request is not None:
+            if existing_request.status.value == "pending":
+                request_id = existing_request.id
+                if existing_request.from_user_id == current_user_uuid:
+                    relationship_status = ChatRelationshipStatusDTO.OUTGOING_PENDING
+                else:
+                    relationship_status = ChatRelationshipStatusDTO.INCOMING_PENDING
+            elif existing_request.status.value == "accepted" and existing_request.room_id is not None:
+                relationship_status = ChatRelationshipStatusDTO.CONNECTED
+                room_id = existing_request.room_id
+
+        enriched_results.append(
+            result.model_copy(
+                update={
+                    "relationship_status": relationship_status,
+                    "request_id": request_id,
+                    "room_id": room_id,
+                }
+            )
+        )
+    return ChatUserSearchListResponseDTO(users=enriched_results)
 
 
 @router.post("/requests", response_model=ChatRequestResponseDTO, status_code=201)
@@ -64,16 +163,27 @@ async def send_chat_request(
     repo: SQLChatRepository = Depends(get_chat_repo),
 ):
     try:
-        request = await SendChatRequestUseCase(repo).execute(_parse_user_id(current_user_id), body.to_user_id)
+        request = await SendChatRequestUseCase(repo, _target_user_exists).execute(
+            _parse_user_id(current_user_id),
+            body.to_user_id,
+        )
     except ChatRequestAlreadyExists as e:
         raise HTTPException(status_code=409, detail=str(e))
+    except DirectChatAlreadyExists as e:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(e),
+                "room_id": str(e.room_id),
+            },
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return ChatRequestResponseDTO(
-        id=request.id, from_user_id=request.from_user_id,
-        to_user_id=request.to_user_id, status=request.status,
-        created_at=request.created_at, room_id=request.room_id,
-    )
+    except kc.KeycloakAdminError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    user_lookup = await _load_user_lookup({request.from_user_id, request.to_user_id})
+    return _build_request_response(request, user_lookup)
 
 
 @router.post("/requests/{request_id}/respond", response_model=ChatRequestResponseDTO)
@@ -91,28 +201,45 @@ async def respond_to_chat_request(
         )
     except ChatRequestNotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ChatRequestForbidden as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ChatRequestAlreadyHandled as e:
         raise HTTPException(status_code=409, detail=str(e))
-    return ChatRequestResponseDTO(
-        id=request.id, from_user_id=request.from_user_id,
-        to_user_id=request.to_user_id, status=request.status,
-        created_at=request.created_at, room_id=request.room_id,
-    )
+    try:
+        user_lookup = await _load_user_lookup({request.from_user_id, request.to_user_id})
+    except kc.KeycloakAdminError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return _build_request_response(request, user_lookup)
 
 
-@router.get("/requests/pending")
+@router.get("/requests/pending", response_model=list[ChatRequestResponseDTO])
 async def get_pending_requests(
     current_user_id: str = Depends(get_current_user_id),
     repo: SQLChatRepository = Depends(get_chat_repo),
 ):
     requests = await repo.get_pending_requests_for_user(_parse_user_id(current_user_id))
-    return [
-        ChatRequestResponseDTO(
-            id=r.id, from_user_id=r.from_user_id, to_user_id=r.to_user_id,
-            status=r.status, created_at=r.created_at, room_id=r.room_id,
+    try:
+        user_lookup = await _load_user_lookup(
+            {user_id for request in requests for user_id in (request.from_user_id, request.to_user_id)}
         )
-        for r in requests
-    ]
+    except kc.KeycloakAdminError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return [_build_request_response(request, user_lookup) for request in requests]
+
+
+@router.get("/requests/outgoing", response_model=list[ChatRequestResponseDTO])
+async def get_outgoing_requests(
+    current_user_id: str = Depends(get_current_user_id),
+    repo: SQLChatRepository = Depends(get_chat_repo),
+):
+    requests = await repo.get_outgoing_requests_for_user(_parse_user_id(current_user_id))
+    try:
+        user_lookup = await _load_user_lookup(
+            {user_id for request in requests for user_id in (request.from_user_id, request.to_user_id)}
+        )
+    except kc.KeycloakAdminError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return [_build_request_response(request, user_lookup) for request in requests]
 
 
 @router.get("/rooms", response_model=ChatRoomListResponseDTO)
@@ -120,13 +247,30 @@ async def get_my_rooms(
     current_user_id: str = Depends(get_current_user_id),
     repo: SQLChatRepository = Depends(get_chat_repo),
 ):
-    rooms = await GetMyRoomsUseCase(repo).execute(_parse_user_id(current_user_id))
-    return ChatRoomListResponseDTO(rooms=[
-        ChatRoomResponseDTO(
-            id=r.id, room_type=r.room_type, association_id=r.association_id,
-            name=r.name, created_at=r.created_at,
-        ) for r in rooms
-    ])
+    current_user_uuid = _parse_user_id(current_user_id)
+    rooms = await GetMyRoomsUseCase(repo).execute(current_user_uuid)
+    all_member_ids: set[UUID] = set()
+
+    for room in rooms:
+        member_ids = await repo.get_room_member_ids(room.id)
+        all_member_ids.update(member_ids)
+
+    try:
+        user_lookup = await _load_user_lookup(all_member_ids)
+    except kc.KeycloakAdminError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    room_responses = []
+    for room in rooms:
+        room_responses.append(
+            await _build_room_response(
+                room,
+                current_user_id=current_user_uuid,
+                repo=repo,
+                user_lookup=user_lookup,
+            )
+        )
+    return ChatRoomListResponseDTO(rooms=room_responses)
 
 
 @router.post("/associations/{association_id}/room")
@@ -156,7 +300,7 @@ async def join_association_room(
     return {"message": "Joined successfully", "room_id": str(room.id)}
 
 
-@router.get("/rooms/{room_id}/messages")
+@router.get("/rooms/{room_id}/messages", response_model=list[ChatMessageResponseDTO])
 async def get_room_messages(
     room_id: UUID, limit: int = 50, offset: int = 0,
     current_user_id: str = Depends(get_current_user_id),
@@ -171,15 +315,58 @@ async def get_room_messages(
         )
     except NotARoomMember as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return [
-        {
-            "id": str(m.id), "room_id": str(m.room_id),
-            "sender_id": str(m.sender_id) if m.sender_id else None,
-            "content": m.content, "is_anonymous": m.is_anonymous,
-            "created_at": m.created_at.isoformat(),
-        }
+        ChatMessageResponseDTO(
+            id=m.id,
+            room_id=m.room_id,
+            sender_id=m.sender_id,
+            content=m.content,
+            is_anonymous=m.is_anonymous,
+            created_at=m.created_at,
+        )
         for m in messages
     ]
+
+
+@router.post("/rooms/{room_id}/messages", response_model=ChatMessageResponseDTO, status_code=201)
+async def send_room_message(
+    room_id: UUID,
+    body: SendMessageDTO,
+    current_user_id: str = Depends(get_current_user_id),
+    repo: SQLChatRepository = Depends(get_chat_repo),
+):
+    try:
+        message = await SendMessageUseCase(repo).execute(
+            room_id,
+            _parse_user_id(current_user_id),
+            body.content,
+            body.is_anonymous,
+        )
+    except NotARoomMember as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    await manager.broadcast(
+        str(room_id),
+        {
+            "type": "message",
+            "id": str(message.id),
+            "room_id": str(room_id),
+            "sender_id": current_user_id if not body.is_anonymous else None,
+            "content": message.content,
+            "is_anonymous": message.is_anonymous,
+            "timestamp": message.created_at.isoformat(),
+        },
+    )
+    return ChatMessageResponseDTO(
+        id=message.id,
+        room_id=message.room_id,
+        sender_id=message.sender_id if not message.is_anonymous else None,
+        content=message.content,
+        is_anonymous=message.is_anonymous,
+        created_at=message.created_at,
+    )
 
 
 @router.websocket("/ws/{room_id}")
