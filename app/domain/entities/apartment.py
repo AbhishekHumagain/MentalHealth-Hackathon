@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from app.domain.entities.Base import BaseModel
 
@@ -22,5 +23,12 @@ class Apartment(BaseModel):
     images_urls: list[str] = field(default_factory=list)
     amenities: list[str] = field(default_factory=list)
     posted_by: str = ""
-    contact_email: str = ""
+    source_type: str = "manual"
+    external_id: str | None = None
+    source_name: str | None = None
+    source_url: str | None = None
+    contact_email: str | None = None
     contact_phone: str | None = None
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    raw_payload: dict[str, object] | None = None

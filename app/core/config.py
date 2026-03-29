@@ -100,6 +100,8 @@ class Settings(BaseSettings):
     adzuna_app_id: str | None = Field(default=None)
     adzuna_app_key: str | None = Field(default=None)
     adzuna_country: str = Field(default="us")
+    housing_provider: str = Field(default="demo_seed")
+    rentcast_api_key: str | None = Field(default=None)
 
     # ── CORS ──────────────────────────────────────────────────────────────────
     allowed_origins: list[str] = Field(default=["http://localhost:3000"])
