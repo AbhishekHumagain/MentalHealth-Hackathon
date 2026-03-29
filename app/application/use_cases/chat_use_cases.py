@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from app.application.dto.chat_dto import ChatUserSearchResultDTO
 from app.domain.entities.chat import (
     ChatMessage, ChatRequest, ChatRequestStatus,
     ChatRoom, ChatRoomMember,
@@ -16,6 +17,8 @@ class SendChatRequestUseCase:
         self.repo = repo
 
     async def execute(self, from_user_id: UUID, to_user_id: UUID) -> ChatRequest:
+        if from_user_id == to_user_id:
+            raise ValueError("You cannot send a chat request to yourself.")
         existing = await self.repo.get_existing_request(from_user_id, to_user_id)
         if existing:
             raise ChatRequestAlreadyExists("Request already exists.")
@@ -106,5 +109,37 @@ class GetMessagesUseCase:
             if msg.is_anonymous:
                 msg.sender_id = None
         return messages
+
+
+class SearchChatUsersUseCase:
+    def __init__(self, user_search):
+        self._user_search = user_search
+
+    async def execute(
+        self,
+        *,
+        query: str,
+        current_user_id: UUID,
+        limit: int = 20,
+    ) -> list[ChatUserSearchResultDTO]:
+        users = await self._user_search(query, max_results=limit)
+        results: list[ChatUserSearchResultDTO] = []
+        for user in users:
+            try:
+                user_id = UUID(user.id)
+            except ValueError:
+                continue
+            if user_id == current_user_id:
+                continue
+            results.append(
+                ChatUserSearchResultDTO(
+                    id=user_id,
+                    email=user.email,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    display_name=user.display_name,
+                )
+            )
+        return results
 
 

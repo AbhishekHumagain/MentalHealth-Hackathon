@@ -1,20 +1,26 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_v1_router
 from app.core.config import get_settings
+
+UPLOAD_DIR = Path("/app/uploads")
 
 _settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    # Startup: nothing required for PoC — Alembic handles migrations separately
+    # Ensure upload directories exist
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    (UPLOAD_DIR / "events").mkdir(parents=True, exist_ok=True)
     yield
     # Shutdown: engine disposal is handled by the connection pool
 
@@ -38,6 +44,10 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # ── Static file serving (uploaded images) ─────────────────────────────────
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(api_v1_router, prefix="/api")

@@ -64,3 +64,15 @@ class ChatMessageResponseDTO(BaseModel):
 
 class ChatRoomListResponseDTO(BaseModel):
     rooms: List[ChatRoomResponseDTO]
+
+
+class ChatUserSearchResultDTO(BaseModel):
+    id: UUID
+    email: str
+    first_name: str = ""
+    last_name: str = ""
+    display_name: str
+
+
+class ChatUserSearchListResponseDTO(BaseModel):
+    users: List[ChatUserSearchResultDTO]
