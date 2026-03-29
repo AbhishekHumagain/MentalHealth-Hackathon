@@ -1,6 +1,6 @@
 # Hackathon Platform — Backend API
 
-A full-featured community platform backend for students and universities, covering **internship listings, apartment search, events, a community forum, real-time chat, and AI-powered recommendations** — all secured with Keycloak authentication.
+A full-featured community platform backend for students and universities, covering **internship listings with fake internship detection through rule based engine, apartment search, events, a community forum, real-time chat, and AI-powered recommendations** — all secured with Keycloak authentication.
 
 ---
 
