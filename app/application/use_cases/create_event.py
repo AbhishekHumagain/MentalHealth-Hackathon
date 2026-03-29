@@ -48,6 +48,8 @@ class CreateEventUseCase:
             risk_score=risk.score,
             risk_level=risk.level,
             risk_reasons=risk.reasons,
+            banner_url=dto.banner_url,
+            image_urls=list(dto.image_urls),
         )
         saved = await self._repo.create(event)
         return _to_dto(saved)
@@ -71,6 +73,8 @@ def _to_dto(event: Event) -> EventResponseDTO:
         risk_score=event.risk_score,
         risk_level=event.risk_level,
         risk_reasons=event.risk_reasons,
+        banner_url=event.banner_url,
+        image_urls=list(event.image_urls),
         created_at=event.created_at,
         modified_at=event.modified_at,
     )

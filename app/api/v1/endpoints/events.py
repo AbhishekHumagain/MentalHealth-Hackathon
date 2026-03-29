@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +36,13 @@ router = APIRouter(prefix="/events", tags=["Events"])
 DbSession = Annotated[AsyncSession, Depends(get_async_session)]
 Mode = Literal["virtual", "in_person", "hybrid"]
 HostType = Literal["university", "admin"]
+
+# ── Upload storage ────────────────────────────────────────────────────────────
+UPLOAD_DIR = Path("/app/uploads/events")
+ALLOWED_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+MAX_IMAGE_BYTES = 5 * 1024 * 1024   # 5 MB per image
+MAX_BANNER_BYTES = 5 * 1024 * 1024  # 5 MB banner
+MAX_IMAGES = 7
 
 
 class EventCreateRequest(BaseModel):
@@ -79,6 +88,8 @@ class EventResponse(BaseModel):
     risk_score: float
     risk_level: str
     risk_reasons: list[str]
+    banner_url: str | None = None
+    image_urls: list[str] = Field(default_factory=list)
     rsvp_count: int
     my_rsvp_status: str | None = None
     created_at: datetime
@@ -173,6 +184,8 @@ async def _to_http(
         risk_score=dto.risk_score,
         risk_level=dto.risk_level,
         risk_reasons=dto.risk_reasons,
+        banner_url=dto.banner_url,
+        image_urls=list(dto.image_urls),
         rsvp_count=await rsvp_repo.count_for_event(event_id=dto.id),
         my_rsvp_status=my_rsvp.status if my_rsvp else None,
         created_at=dto.created_at,
@@ -409,6 +422,191 @@ async def get_my_rsvp(
         return _to_rsvp_status_http(result) if result else None
     except EventNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+# ── Image helpers ─────────────────────────────────────────────────────────────
+
+def _assert_can_manage(claims, event) -> None:
+    """Raise 403 if caller is neither the host nor an admin."""
+    if "admin" not in claims.roles and event.hosted_by != claims.sub:
+        raise HTTPException(status_code=403, detail="Only the event host or an admin can manage images.")
+
+
+async def _save_upload(file: UploadFile, event_id: str, max_bytes: int) -> str:
+    """Validate, save the file, and return its public URL path."""
+    if file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file type '{file.content_type}'. Allowed: jpeg, png, gif, webp.",
+        )
+    contents = await file.read()
+    if len(contents) > max_bytes:
+        mb = max_bytes // (1024 * 1024)
+        raise HTTPException(status_code=413, detail=f"File exceeds {mb} MB limit.")
+
+    ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else "jpg"
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    event_dir = UPLOAD_DIR / event_id
+    event_dir.mkdir(parents=True, exist_ok=True)
+    (event_dir / filename).write_bytes(contents)
+    return f"/uploads/events/{event_id}/{filename}"
+
+
+def _delete_file_if_exists(url: str) -> None:
+    """Remove a stored file given its URL path."""
+    if url and url.startswith("/uploads/"):
+        path = Path("/app") / url.lstrip("/")
+        if path.exists():
+            path.unlink(missing_ok=True)
+
+
+# ── Banner endpoints ──────────────────────────────────────────────────────────
+
+@router.post("/{event_id}/banner", response_model=EventResponse)
+async def upload_banner(
+    event_id: str,
+    claims: CurrentUser,
+    session: DbSession,
+    file: UploadFile = File(...),
+    repo: SQLAlchemyEventRepository = Depends(get_repo),
+    rsvp_repo: SQLAlchemyEventRSVPRepository = Depends(get_rsvp_repo),
+):
+    """Upload or replace the event banner image (host or admin only). Max 5 MB."""
+    event = await repo.get_by_id(event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail=f"Event {event_id} not found.")
+    _assert_can_manage(claims, event)
+
+    # Remove old banner file from disk
+    if event.banner_url:
+        _delete_file_if_exists(event.banner_url)
+
+    url = await _save_upload(file, event_id, MAX_BANNER_BYTES)
+    event.banner_url = url
+    event.mark_modified(claims.sub)
+    updated = await repo.update(event)
+    from app.application.use_cases.create_event import _to_dto
+    return await _to_http(_to_dto(updated), claims=claims, rsvp_repo=rsvp_repo)
+
+
+@router.delete("/{event_id}/banner", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_banner(
+    event_id: str,
+    claims: CurrentUser,
+    session: DbSession,
+    repo: SQLAlchemyEventRepository = Depends(get_repo),
+):
+    """Remove the event banner (host or admin only)."""
+    event = await repo.get_by_id(event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail=f"Event {event_id} not found.")
+    _assert_can_manage(claims, event)
+
+    if event.banner_url:
+        _delete_file_if_exists(event.banner_url)
+        event.banner_url = None
+        event.mark_modified(claims.sub)
+        await repo.update(event)
+
+
+# ── Image endpoints ───────────────────────────────────────────────────────────
+
+class ImageListResponse(BaseModel):
+    event_id: str
+    banner_url: str | None
+    image_urls: list[str]
+    image_count: int
+    slots_remaining: int
+
+
+@router.get("/{event_id}/images", response_model=ImageListResponse)
+async def list_images(
+    event_id: str,
+    claims: CurrentUser,
+    repo: SQLAlchemyEventRepository = Depends(get_repo),
+):
+    """List all images and banner for an event."""
+    event = await repo.get_by_id(event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail=f"Event {event_id} not found.")
+    return ImageListResponse(
+        event_id=event_id,
+        banner_url=event.banner_url,
+        image_urls=event.image_urls,
+        image_count=len(event.image_urls),
+        slots_remaining=MAX_IMAGES - len(event.image_urls),
+    )
+
+
+@router.post("/{event_id}/images", response_model=ImageListResponse)
+async def upload_images(
+    event_id: str,
+    claims: CurrentUser,
+    session: DbSession,
+    files: list[UploadFile] = File(...),
+    repo: SQLAlchemyEventRepository = Depends(get_repo),
+):
+    """Upload up to 7 images total for an event (host or admin only). Max 5 MB each.
+
+    You can upload multiple files in one request. The total across all uploads
+    cannot exceed 7 images per event.
+    """
+    event = await repo.get_by_id(event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail=f"Event {event_id} not found.")
+    _assert_can_manage(claims, event)
+
+    slots = MAX_IMAGES - len(event.image_urls)
+    if slots <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This event already has {MAX_IMAGES} images. Delete some before uploading more.",
+        )
+    if len(files) > slots:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many files. You can upload at most {slots} more image(s) (max {MAX_IMAGES} total).",
+        )
+
+    for file in files:
+        url = await _save_upload(file, event_id, MAX_IMAGE_BYTES)
+        event.image_urls.append(url)
+
+    event.mark_modified(claims.sub)
+    updated = await repo.update(event)
+    return ImageListResponse(
+        event_id=event_id,
+        banner_url=updated.banner_url,
+        image_urls=updated.image_urls,
+        image_count=len(updated.image_urls),
+        slots_remaining=MAX_IMAGES - len(updated.image_urls),
+    )
+
+
+@router.delete("/{event_id}/images/{image_index}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_image(
+    event_id: str,
+    image_index: int,
+    claims: CurrentUser,
+    session: DbSession,
+    repo: SQLAlchemyEventRepository = Depends(get_repo),
+):
+    """Delete an event image by its index (0-based) in the image_urls list (host or admin only)."""
+    event = await repo.get_by_id(event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail=f"Event {event_id} not found.")
+    _assert_can_manage(claims, event)
+
+    if image_index < 0 or image_index >= len(event.image_urls):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Image index {image_index} is out of range. Event has {len(event.image_urls)} image(s).",
+        )
+
+    url = event.image_urls.pop(image_index)
+    _delete_file_if_exists(url)
+    event.mark_modified(claims.sub)
+    await repo.update(event)
 
 
 @router.get("/{event_id}/attendees", response_model=EventAttendeeListResponse)
