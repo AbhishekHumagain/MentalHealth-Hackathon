@@ -3,6 +3,7 @@ from uuid import UUID
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.domain.entities.chat import (
     ChatMessage, ChatRequest, ChatRequestStatus,
@@ -68,9 +69,9 @@ class SQLChatRepository(AbstractChatRepository):
                     and_(ChatRequestModel.from_user_id == from_user, ChatRequestModel.to_user_id == to_user),
                     and_(ChatRequestModel.from_user_id == to_user, ChatRequestModel.to_user_id == from_user),
                 )
-            )
+            ).order_by(ChatRequestModel.created_at.desc())
         )
-        model = result.scalar_one_or_none()
+        model = result.scalars().first()
         return _to_request(model) if model else None
 
     async def update_request_status(
@@ -92,7 +93,16 @@ class SQLChatRepository(AbstractChatRepository):
             select(ChatRequestModel).where(
                 ChatRequestModel.to_user_id == user_id,
                 ChatRequestModel.status == "pending",
-            )
+            ).order_by(ChatRequestModel.created_at.desc())
+        )
+        return [_to_request(m) for m in result.scalars().all()]
+
+    async def get_outgoing_requests_for_user(self, user_id: UUID) -> List[ChatRequest]:
+        result = await self.session.execute(
+            select(ChatRequestModel).where(
+                ChatRequestModel.from_user_id == user_id,
+                ChatRequestModel.status == "pending",
+            ).order_by(ChatRequestModel.created_at.desc())
         )
         return [_to_request(m) for m in result.scalars().all()]
 
@@ -114,6 +124,23 @@ class SQLChatRepository(AbstractChatRepository):
         model = result.scalar_one_or_none()
         return _to_room(model) if model else None
 
+    async def get_direct_room_for_users(self, first_user_id: UUID, second_user_id: UUID) -> Optional[ChatRoom]:
+        first_member = aliased(ChatRoomMemberModel)
+        second_member = aliased(ChatRoomMemberModel)
+        result = await self.session.execute(
+            select(ChatRoomModel)
+            .join(first_member, first_member.room_id == ChatRoomModel.id)
+            .join(second_member, second_member.room_id == ChatRoomModel.id)
+            .where(
+                ChatRoomModel.room_type == "direct",
+                first_member.user_id == first_user_id,
+                second_member.user_id == second_user_id,
+            )
+            .order_by(ChatRoomModel.created_at.desc())
+        )
+        model = result.scalars().first()
+        return _to_room(model) if model else None
+
     async def get_association_room(self, association_id: UUID) -> Optional[ChatRoom]:
         result = await self.session.execute(
             select(ChatRoomModel).where(
@@ -129,8 +156,17 @@ class SQLChatRepository(AbstractChatRepository):
             select(ChatRoomModel)
             .join(ChatRoomMemberModel, ChatRoomMemberModel.room_id == ChatRoomModel.id)
             .where(ChatRoomMemberModel.user_id == user_id)
+            .order_by(ChatRoomModel.created_at.desc())
         )
         return [_to_room(m) for m in result.scalars().all()]
+
+    async def get_room_member_ids(self, room_id: UUID) -> List[UUID]:
+        result = await self.session.execute(
+            select(ChatRoomMemberModel.user_id)
+            .where(ChatRoomMemberModel.room_id == room_id)
+            .order_by(ChatRoomMemberModel.joined_at.asc())
+        )
+        return list(result.scalars().all())
 
     async def add_member(self, member: ChatRoomMember) -> ChatRoomMember:
         model = ChatRoomMemberModel(
@@ -170,3 +206,13 @@ class SQLChatRepository(AbstractChatRepository):
             .offset(offset).limit(limit)
         )
         return [_to_message(m) for m in result.scalars().all()]
+
+    async def get_latest_message(self, room_id: UUID) -> Optional[ChatMessage]:
+        result = await self.session.execute(
+            select(ChatMessageModel)
+            .where(ChatMessageModel.room_id == room_id, ChatMessageModel.is_deleted == False)
+            .order_by(ChatMessageModel.created_at.desc())
+            .limit(1)
+        )
+        model = result.scalar_one_or_none()
+        return _to_message(model) if model else None
