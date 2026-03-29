@@ -25,8 +25,15 @@ class CreateApartmentUseCase:
             images_urls=dto.images_urls,
             amenities=dto.amenities,
             posted_by=dto.posted_by,
+            source_type=dto.source_type,
+            external_id=dto.external_id,
+            source_name=dto.source_name,
+            source_url=dto.source_url,
             contact_email=dto.contact_email,
             contact_phone=dto.contact_phone,
+            first_seen_at=dto.first_seen_at,
+            last_seen_at=dto.last_seen_at,
+            raw_payload=dto.raw_payload,
         )
         saved = await self._repo.create(apartment)
         return _to_dto(saved)
@@ -50,8 +57,15 @@ def _to_dto(a: Apartment) -> ApartmentResponseDTO:
         images_urls=a.images_urls,
         amenities=a.amenities,
         posted_by=a.posted_by,
+        source_type=a.source_type,
+        external_id=a.external_id,
+        source_name=a.source_name,
+        source_url=a.source_url,
         contact_email=a.contact_email,
         contact_phone=a.contact_phone,
+        first_seen_at=a.first_seen_at,
+        last_seen_at=a.last_seen_at,
+        raw_payload=a.raw_payload,
         created_at=a.created_at,
         modified_at=a.modified_at,
     )

@@ -21,6 +21,9 @@ class Internship(BaseModel):
     majors: list[str] = field(default_factory=list)
     keywords: list[str] = field(default_factory=list)
     is_active: bool = True
+    risk_score: float = 0.0
+    risk_level: str = "low"
+    risk_reasons: list[str] = field(default_factory=list)
     expires_at: datetime | None = None
     first_seen_at: datetime | None = None
     last_seen_at: datetime | None = None

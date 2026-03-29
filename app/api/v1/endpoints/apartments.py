@@ -2,19 +2,24 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user_id
 from app.application.dto.apartment_dto import ApartmentResponseDTO, CreateApartmentDTO
+from app.application.dto.apartment_sync_dto import ApartmentSyncResultDTO
 from app.application.use_cases.create_apartment import CreateApartmentUseCase
 from app.application.use_cases.list_apartments import (
     ListApartmentsByLocationUseCase,
     ListApartmentsUseCase,
 )
+from app.application.use_cases.sync_external_apartments import SyncExternalApartmentsUseCase
 from app.infrastructure.database.repositories.apartment_repository_impl import (
     SQLAlchemyApartmentRepository,
+)
+from app.infrastructure.database.repositories.student_profile_repository_impl import (
+    SQLAlchemyStudentProfileRepository,
 )
 from app.infrastructure.database.session import get_async_session
 
@@ -42,6 +47,12 @@ class ApartmentCreateRequest(BaseModel):
     contact_phone: str | None = None
 
 
+class ApartmentSyncRequest(BaseModel):
+    locations: list[str] = Field(default_factory=list)
+    max_rent: float | None = Field(default=None, gt=0)
+    limit_per_location: int = Field(default=20, ge=1, le=100)
+
+
 class ApartmentResponse(BaseModel):
     id: str
     title: str
@@ -59,8 +70,14 @@ class ApartmentResponse(BaseModel):
     images_urls: list[str]
     amenities: list[str]
     posted_by: str
-    contact_email: str
+    source_type: str
+    external_id: str | None
+    source_name: str | None
+    source_url: str | None
+    contact_email: str | None
     contact_phone: str | None
+    first_seen_at: str | None
+    last_seen_at: str | None
     created_at: str
     modified_at: str
 
@@ -72,8 +89,21 @@ class ApartmentListResponse(BaseModel):
     limit: int
 
 
+class ApartmentSyncResponse(BaseModel):
+    requested_locations: list[str]
+    fetched: int
+    created: int
+    updated: int
+    deactivated: int
+    skipped: int
+
+
 def get_repo(session: DbSession) -> SQLAlchemyApartmentRepository:
     return SQLAlchemyApartmentRepository(session)
+
+
+def get_profile_repo(session: DbSession) -> SQLAlchemyStudentProfileRepository:
+    return SQLAlchemyStudentProfileRepository(session)
 
 
 def _to_http(dto: ApartmentResponseDTO) -> ApartmentResponse:
@@ -94,11 +124,21 @@ def _to_http(dto: ApartmentResponseDTO) -> ApartmentResponse:
         images_urls=dto.images_urls,
         amenities=dto.amenities,
         posted_by=dto.posted_by,
+        source_type=dto.source_type,
+        external_id=dto.external_id,
+        source_name=dto.source_name,
+        source_url=dto.source_url,
         contact_email=dto.contact_email,
         contact_phone=dto.contact_phone,
+        first_seen_at=dto.first_seen_at.isoformat() if dto.first_seen_at else None,
+        last_seen_at=dto.last_seen_at.isoformat() if dto.last_seen_at else None,
         created_at=dto.created_at.isoformat(),
         modified_at=dto.modified_at.isoformat(),
     )
+
+
+def _to_sync_http(dto: ApartmentSyncResultDTO) -> ApartmentSyncResponse:
+    return ApartmentSyncResponse(**dto.model_dump())
 
 
 @router.post("/", response_model=ApartmentResponse, status_code=status.HTTP_201_CREATED)
@@ -107,7 +147,6 @@ async def create_apartment(
     current_user_id: CurrentUserId,
     repo: SQLAlchemyApartmentRepository = Depends(get_repo),
 ):
-    """Post a new apartment listing."""
     dto = CreateApartmentDTO(
         posted_by=current_user_id,
         **body.model_dump(),
@@ -125,7 +164,6 @@ async def list_apartments(
     limit: int = Query(20, ge=1, le=100),
     repo: SQLAlchemyApartmentRepository = Depends(get_repo),
 ):
-    """List all available apartments with optional filters."""
     results = await ListApartmentsUseCase(repo).execute(
         city=city, state=state, max_rent=max_rent, skip=skip, limit=limit
     )
@@ -140,13 +178,16 @@ async def list_apartments(
 @router.get("/by-location", response_model=ApartmentListResponse)
 async def list_apartments_by_location(
     locations: list[str] = Query(...),
+    max_rent: float | None = Query(None, gt=0),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     repo: SQLAlchemyApartmentRepository = Depends(get_repo),
 ):
-    """Get apartments matching a student's preferred locations."""
     results = await ListApartmentsByLocationUseCase(repo).execute(
-        locations=locations, skip=skip, limit=limit
+        locations=locations,
+        max_rent=max_rent,
+        skip=skip,
+        limit=limit,
     )
     return ApartmentListResponse(
         items=[_to_http(r) for r in results],
@@ -154,3 +195,24 @@ async def list_apartments_by_location(
         skip=skip,
         limit=limit,
     )
+
+
+@router.post("/sync", response_model=ApartmentSyncResponse)
+async def sync_external_apartments(
+    body: ApartmentSyncRequest,
+    _current_user_id: CurrentUserId,
+    apartments: SQLAlchemyApartmentRepository = Depends(get_repo),
+    profiles: SQLAlchemyStudentProfileRepository = Depends(get_profile_repo),
+):
+    try:
+        result = await SyncExternalApartmentsUseCase(
+            apartments=apartments,
+            profiles=profiles,
+        ).execute(
+            locations=body.locations or None,
+            max_rent=body.max_rent,
+            limit_per_location=body.limit_per_location,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return _to_sync_http(result)

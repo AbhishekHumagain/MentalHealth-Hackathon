@@ -81,6 +81,8 @@ async def test_create_event() -> None:
     assert created.title == "Resume Review"
     assert created.host_type == "university"
     assert created.tags == ["career", "resume"]
+    assert created.risk_level == "low"
+    assert created.risk_reasons == []
 
 
 async def test_list_events_filters_upcoming_by_mode_and_tag() -> None:
@@ -208,3 +210,27 @@ async def test_update_event_rejects_invalid_time_range() -> None:
         assert False, "Expected ValueError"
     except ValueError as exc:
         assert "end_at" in str(exc)
+
+
+async def test_create_event_flags_risky_description() -> None:
+    repo = InMemoryEventRepository()
+    start_at = datetime.now(timezone.utc) + timedelta(days=1)
+    end_at = start_at + timedelta(hours=1)
+
+    created = await CreateEventUseCase(repo).execute(
+        CreateEventDTO(
+            title="Exclusive Career Event",
+            description="Limited spots only. Send payment by gift card and message us on WhatsApp to join.",
+            hosted_by="admin-1",
+            host_type="admin",
+            organizer_name="Admin",
+            mode="virtual",
+            meeting_url="https://bit.ly/fake-event",
+            start_at=start_at,
+            end_at=end_at,
+            tags=["career"],
+        )
+    )
+
+    assert created.risk_level == "high"
+    assert any("payment" in reason.lower() for reason in created.risk_reasons)

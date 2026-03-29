@@ -20,6 +20,9 @@ class CreateEventDTO:
     meeting_url: str | None = None
     tags: list[str] = field(default_factory=list)
     is_active: bool = True
+    risk_score: float = 0.0
+    risk_level: str = "low"
+    risk_reasons: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -53,5 +56,8 @@ class EventResponseDTO(BaseModel):
     end_at: datetime
     tags: list[str]
     is_active: bool
+    risk_score: float
+    risk_level: str
+    risk_reasons: list[str]
     created_at: datetime
     modified_at: datetime

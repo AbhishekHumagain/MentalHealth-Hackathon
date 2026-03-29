@@ -17,3 +17,6 @@ class InternshipRecommendationResponseDTO(BaseModel):
     internship_company: str
     internship_location: str
     application_url: str
+    risk_score: float
+    risk_level: str
+    risk_reasons: list[str]

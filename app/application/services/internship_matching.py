@@ -62,6 +62,7 @@ class InternshipMatchingService:
 
             score += self._title_bonus(internship)
             score += self._freshness_bonus(internship, target_date)
+            score -= self._risk_penalty(internship)
 
             if score <= 0:
                 continue
@@ -121,4 +122,11 @@ class InternshipMatchingService:
             seen_at = seen_at.replace(tzinfo=timezone.utc)
         if seen_at.date() >= target_date - timedelta(days=7):
             return 0.5
+        return 0.0
+
+    def _risk_penalty(self, internship: Internship) -> float:
+        if internship.risk_level == "high":
+            return 6.0
+        if internship.risk_level == "medium":
+            return 2.5
         return 0.0
