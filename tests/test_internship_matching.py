@@ -208,6 +208,8 @@ async def test_create_internship_and_list_recommendations_for_matching_major() -
         )
     )
     assert internship.title == "Backend Intern"
+    assert internship.risk_level == "low"
+    assert internship.risk_reasons == []
 
     generated_count = await GenerateDailyRecommendationsUseCase(
         profiles=profiles,
@@ -419,6 +421,7 @@ async def test_external_sync_upserts_and_generates_recommendations() -> None:
     assert all_internships[0].title == "Software Engineer Intern Updated"
     assert all_internships[0].first_seen_at is not None
     assert all_internships[0].raw_payload is not None
+    assert all_internships[0].risk_level == "low"
 
     matches = await ListMyRecommendationsUseCase(
         profiles=profiles,
@@ -507,3 +510,34 @@ def test_matching_adds_title_and_freshness_bonus() -> None:
 
     assert len(results) == 1
     assert results[0].score >= 11.5
+
+
+def test_matching_penalizes_high_risk_internships() -> None:
+    service = InternshipMatchingService()
+    profile = StudentProfile(user_id="student-1", university_id="u1", major="Computer Science")
+    safe = Internship(
+        title="Software Engineer Intern",
+        company="Acme",
+        description="Backend engineering internship",
+        location="Remote",
+        application_url="https://example.com/jobs/1",
+        majors=["Computer Science"],
+        keywords=["backend"],
+        last_seen_at=datetime.now(timezone.utc),
+        risk_level="low",
+    )
+    risky = Internship(
+        title="Software Engineer Intern",
+        company="Confidential",
+        description="Apply immediately and contact us on WhatsApp for fast money.",
+        location="Remote",
+        application_url="https://example.com/jobs/2",
+        majors=["Computer Science"],
+        keywords=["backend"],
+        last_seen_at=datetime.now(timezone.utc),
+        risk_level="high",
+    )
+
+    results = service.score_profile(profile, [risky, safe], date.today())
+
+    assert [item.internship.id for item in results] == [safe.id, risky.id]

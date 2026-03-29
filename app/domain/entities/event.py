@@ -20,6 +20,9 @@ class Event(BaseModel):
     end_at: datetime | None = None
     tags: list[str] = field(default_factory=list)
     is_active: bool = True
+    risk_score: float = 0.0
+    risk_level: str = "low"
+    risk_reasons: list[str] = field(default_factory=list)
 
     def is_upcoming(self, now: datetime) -> bool:
         return self.is_active and self.start_at is not None and self.start_at >= now

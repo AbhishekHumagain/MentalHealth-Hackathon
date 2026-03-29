@@ -7,6 +7,7 @@ from app.application.services.external_internship_provider import (
     AdzunaInternshipProvider,
     ExternalInternshipProvider,
 )
+from app.application.services.listing_risk import ListingRiskService
 from app.application.services.major_taxonomy import MajorTaxonomyService
 from app.domain.entities.internship import Internship
 from app.domain.repositories.internship_repository import InternshipRepository
@@ -28,12 +29,14 @@ class SyncExternalInternshipsUseCase:
         recommendations: InternshipRecommendationRepository,
         provider: ExternalInternshipProvider | None = None,
         taxonomy: MajorTaxonomyService | None = None,
+        risk_service: ListingRiskService | None = None,
     ) -> None:
         self._internships = internships
         self._profiles = profiles
         self._recommendations = recommendations
         self._provider = provider or AdzunaInternshipProvider()
         self._taxonomy = taxonomy or MajorTaxonomyService()
+        self._risk_service = risk_service or ListingRiskService()
 
     async def execute(self, target_date: date) -> InternshipSyncResultDTO:
         provider_source_name = getattr(self._provider, "SOURCE_NAME", "external_api")
@@ -62,6 +65,14 @@ class SyncExternalInternshipsUseCase:
                 record.external_id,
             )
             now = datetime.now(timezone.utc)
+            risk = self._risk_service.analyze_internship(
+                title=record.title,
+                company=record.company,
+                description=record.description,
+                application_url=record.application_url,
+                source_url=record.source_url,
+                raw_payload=record.raw_payload,
+            )
             saved, was_created = await self._internships.upsert_by_source(
                 Internship(
                     title=record.title,
@@ -77,6 +88,9 @@ class SyncExternalInternshipsUseCase:
                     majors=record.majors,
                     keywords=record.keywords,
                     is_active=True,
+                    risk_score=risk.score,
+                    risk_level=risk.level,
+                    risk_reasons=risk.reasons,
                     expires_at=record.expires_at,
                     first_seen_at=(
                         record.first_seen_at

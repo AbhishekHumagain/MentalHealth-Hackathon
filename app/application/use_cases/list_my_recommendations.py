@@ -51,6 +51,9 @@ class ListMyRecommendationsUseCase:
                     internship_company=internship.company,
                     internship_location=internship.location,
                     application_url=internship.application_url,
+                    risk_score=internship.risk_score,
+                    risk_level=internship.risk_level,
+                    risk_reasons=internship.risk_reasons,
                 )
             )
 
